@@ -1,2 +1,18 @@
 # PFI-SDyP
-Proyecto final integrador de la materia Sistemas Distruibuidos y Paralelos, dictada para las carreas Ingeniería en Informática (optativa) e Ingeniería en Computación (obligatoria) de la Universidad Nacional de San Luis (UNSL).
+
+## Compilar
+
+Para compilar solo el programa secuencial
+`make secuencial`
+
+Para compilar solo el programa de memoria compartida
+`make omp`
+
+Para compilar solo el programa de memoria distribuida
+`make mpi`
+
+Para compilar solo el programa híbrido
+`make hibrido`
+
+Para compilar todos los archivos
+`make`
