@@ -40,6 +40,11 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
+    if (poster_levels != 3 && filter_size != 9) {
+        fprintf(stderr, "Error: el nivel de posterizado (-p) debe ser 3 o 9.\n");
+        exit(EXIT_FAILURE);
+    }
+
     int width, height, channels;
     printf("Info: cargando imagen: %s ...\n", input_file);
     
