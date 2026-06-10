@@ -13,10 +13,14 @@ OBJ_DIR = obj
 BIN_DIR = bin
 
 # ==========================================
-# Archivos Comunes
+# Archivos Objeto
 # ==========================================
-COMMON_SRC = $(SRC_DIR)/image_io.c $(SRC_DIR)/filters.c $(SRC_DIR)/posterize.c
-COMMON_OBJ = $(COMMON_SRC:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
+
+# Objetos secuenciales (usados por secuencial y mpi)
+SEQ_OBJ = $(OBJ_DIR)/image_io.o $(OBJ_DIR)/filters.o $(OBJ_DIR)/posterize.o
+
+# Objetos paralelos con OpenMP (usados por omp e hibrido)
+PAR_OBJ = $(OBJ_DIR)/image_io.o $(OBJ_DIR)/filters_parallel.o $(OBJ_DIR)/posterize_parallel.o
 
 # ==========================================
 # Targets
@@ -34,26 +38,35 @@ dirs:
 # ==========================================
 
 # 1. Secuencial
-secuencial: dirs $(COMMON_OBJ) $(OBJ_DIR)/main_sec.o
-	$(CC) $(CFLAGS) $(COMMON_OBJ) $(OBJ_DIR)/main_sec.o -o $(BIN_DIR)/secuencial $(LDFLAGS)
+secuencial: dirs $(SEQ_OBJ) $(OBJ_DIR)/main_sec.o
+	$(CC) $(CFLAGS) $(SEQ_OBJ) $(OBJ_DIR)/main_sec.o -o $(BIN_DIR)/secuencial $(LDFLAGS)
 
-# 2. Memoria Compartida
-omp: dirs $(COMMON_OBJ) $(OBJ_DIR)/main_omp.o
-	$(CC) $(CFLAGS) $(OMPFLAGS) $(COMMON_OBJ) $(OBJ_DIR)/main_omp.o -o $(BIN_DIR)/omp $(LDFLAGS)
+# 2. Memoria Compartida (OpenMP)
+omp: dirs $(PAR_OBJ) $(OBJ_DIR)/main_omp.o
+	$(CC) $(CFLAGS) $(OMPFLAGS) $(PAR_OBJ) $(OBJ_DIR)/main_omp.o -o $(BIN_DIR)/omp $(LDFLAGS)
 
-# 3. Memoria Distribuida
-mpi: dirs $(COMMON_OBJ) $(OBJ_DIR)/main_mpi.o
-	$(MPICC) $(CFLAGS) $(COMMON_OBJ) $(OBJ_DIR)/main_mpi.o -o $(BIN_DIR)/mpi $(LDFLAGS)
+# 3. Memoria Distribuida (MPI)
+mpi: dirs $(SEQ_OBJ) $(OBJ_DIR)/main_mpi.o
+	$(MPICC) $(CFLAGS) $(SEQ_OBJ) $(OBJ_DIR)/main_mpi.o -o $(BIN_DIR)/mpi $(LDFLAGS)
 
 # 4. Híbrida (MPI + OpenMP)
-hibrido: dirs $(COMMON_OBJ) $(OBJ_DIR)/main_hibrido.o
-	$(MPICC) $(CFLAGS) $(OMPFLAGS) $(COMMON_OBJ) $(OBJ_DIR)/main_hibrido.o -o $(BIN_DIR)/hibrido $(LDFLAGS)
+hibrido: dirs $(PAR_OBJ) $(OBJ_DIR)/main_hibrido.o
+	$(MPICC) $(CFLAGS) $(OMPFLAGS) $(PAR_OBJ) $(OBJ_DIR)/main_hibrido.o -o $(BIN_DIR)/hibrido $(LDFLAGS)
 
 # ==========================================
-# Regla para compilar los archivos .c a objetos .o
+# Reglas de compilación de objetos
 # ==========================================
+
+# Regla genérica para archivos .c (incluye -fopenmp para los _parallel)
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 	$(CC) $(CFLAGS) $(OMPFLAGS) -c $< -o $@
+
+# Reglas específicas para archivos que requieren mpicc (necesitan <mpi.h>)
+$(OBJ_DIR)/main_mpi.o: $(SRC_DIR)/main_mpi.c
+	$(MPICC) $(CFLAGS) -c $< -o $@
+
+$(OBJ_DIR)/main_hibrido.o: $(SRC_DIR)/main_hibrido.c
+	$(MPICC) $(CFLAGS) $(OMPFLAGS) -c $< -o $@
 
 # ==========================================
 # Limpieza general
