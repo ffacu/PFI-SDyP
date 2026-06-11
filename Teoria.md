@@ -63,109 +63,106 @@ El procesamiento de imágenes es un pipeline. El orden no es arbitrario; alterar
 ---
 <!--  -->
 
-# Informacion acerca de la paralelizacion
+# Información sobre la paralelización
 
 ## OpenMP
 
-Para acelerar el pipeline de cartoonización en multiprocesadores simétricos de un solo nodo (SMP), el sistema utiliza OpenMP. OpenMP emplea un modelo de ejecución *fork-join*: el hilo maestro se ejecuta secuencialmente hasta que encuentra una región paralela, momento en el cual genera un equipo de hilos de trabajo que comparten el espacio de direcciones de memoria global del nodo.
+Para acelerar el pipeline de cartoonización en multiprocesadores simétricos de un solo nodo (SMP), el sistema usa OpenMP. OpenMP emplea un modelo de ejecución *fork-join*: el hilo maestro se ejecuta de forma secuencial hasta que encuentra una región paralela, momento en el que genera un equipo de hilos de trabajo que comparten el espacio de direcciones de memoria global del nodo.
 
+### Planificación y Paralelismo a Nivel de Bucle
 
-### Paralelismo a Nivel de Bucle y Programación
+Evaluar la matemática de la posterización o aplicar un núcleo de convolución a un píxel específico no depende, por su naturaleza, del valor recién calculado de ningún otro píxel. Así, el algoritmo se basa en el paralelismo a nivel de bucle, utilizando la directiva `#pragma omp parallel for` aplicada al bucle más externo (iterando sobre la altura de la imagen).
 
-Evaluar la matemática de la posterización o aplicar un núcleo de convolución a un píxel específico no depende inherentemente del valor recién calculado de ningún otro píxel.  Así, el algoritmo se basa en el paralelismo a nivel de bucle, utilizando la directiva #pragma omp parallel for aplicada al bucle más externo (iterando sobre la altura de la imagen).
+OpenMP te da tres clases principales de planificación (*scheduling*):
 
-OpenMP proporciona tres clases principales de programación:
-- **Programación Dinámica (`schedule(dynamic)`):** Las iteraciones se distribuyen en tiempo de ejecución.  Cuando un hilo completa una pequeña porción de trabajo, consulta al programador interno de OpenMP para obtener otra tarea.  Aunque es excelente para cargas de trabajo altamente impredecibles (como el trazado de rayos recursivo), la programación dinámica introduce una inmensa sobrecarga de sincronización del sistema operativo.
-- **Programación Guiada (`schedule(guided)`):** Similar a la dinámica, pero los tamaños de los bloques asignados disminuyen exponencialmente con el tiempo, intentando equilibrar la carga mientras se minimiza la sobrecarga en las etapas finales.
-- **Programación Estática (`schedule(static)`):**  El espacio total de iteración se divide en grandes bloques contiguos de igual tamaño y se asigna permanentemente a hilos específicos en tiempo de compilación.
+* **Planificación Dinámica (`schedule(dynamic)`):** Las iteraciones se distribuyen en tiempo de ejecución. Cuando un hilo completa una pequeña porción de trabajo, le consulta al planificador interno de OpenMP para obtener otra tarea. Aunque es excelente para cargas de trabajo muy impredecibles (como el trazado de rayos recursivo), la planificación dinámica introduce una sobrecarga de sincronización tremenda en el sistema operativo.
+* **Planificación Guiada (`schedule(guided)`):** Es similar a la dinámica, pero los tamaños de los bloques asignados van disminuyendo de forma exponencial con el tiempo, intentando balancear la carga mientras se minimiza la sobrecarga en las etapas finales.
+* **Planificación Estática (`schedule(static)`):** El espacio total de iteración se divide en grandes bloques contiguos de igual tamaño y se asigna permanentemente a hilos específicos en tiempo de compilación.
 
-Para las operaciones que mapean sobre matrices rectangulares, la complejidad computacional por píxel es completamente determinista y uniforme.  Por lo tanto, la programación estática es la opción óptima, ya que esta elimina las consultas del programador en tiempo de ejecución, proporcionando la sobrecarga de sincronización de hilos más baja posible.  Además, al asignar bloques masivos y contiguos de filas a hilos individuales, la programación estática respeta los algoritmos de prefetching de caché L1/L2 del hardware, mejorando enormemente la localidad espacial y la utilización del ancho de banda de memoria.
+Para las operaciones que se mapean sobre matrices rectangulares, la complejidad computacional por píxel es totalmente determinista y uniforme. Por lo tanto, la planificación estática es la opción óptima, ya que elimina las consultas al planificador en tiempo de ejecución, dándote la sobrecarga de sincronización de hilos más baja posible. Además, al asignar bloques masivos y contiguos de filas a hilos individuales, la planificación estática respeta los algoritmos de *prefetching* de caché L1/L2 del hardware, mejorando muchísimo la localidad espacial y el uso del ancho de banda de memoria.
 
 ### Prevención de False Sharing y Race Conditions
 
-Cuando múltiples hilos escriben datos rápidamente en variables distintas que por casualidad residen en la misma línea de caché física de la CPU, los protocolos de coherencia de caché de hardware invalidan y recargan continuamente la línea de caché en diferentes núcleos.  Este fenómeno, conocido como *False Sharing*, degrada severamente la eficiencia paralela. En la implementación de la convolución, los hilos deben leer de una imagen fuente compartida y escribir en una imagen de destino compartida.
+Cuando tenés múltiples hilos escribiendo datos rápido en variables distintas que por casualidad están en la misma línea de caché física de la CPU, los protocolos de coherencia de caché del hardware invalidan y recargan todo el tiempo la línea de caché en diferentes núcleos. Este fenómeno, conocido como *False Sharing*, te degrada severamente la eficiencia paralela. En la implementación de la convolución, los hilos tienen que leer de una imagen fuente compartida y escribir en una de destino compartida.
 
-Debido a que la programación estática obliga a que los hilos operen en bloques de memoria completamente dispares y grandes (separados por megabytes de datos), sus punteros de escritura nunca ocupan la misma línea de caché.  En consecuencia, la compartición falsa se elimina por diseño, y los costosos bloqueos de sincronización de software (como `#pragma omp critical`) son innecesarios durante los bucles de procesamiento de píxeles.
+Como la planificación estática obliga a los hilos a operar en bloques de memoria totalmente dispares y grandes (separados por megabytes de datos), sus punteros de escritura jamás ocupan la misma línea de caché. Así, el *false sharing* se elimina por diseño, y los bloqueos costosos de sincronización de software (como `#pragma omp critical`) pasan a ser innecesarios en los bucles de procesamiento de píxeles.
 
 ---
-<!--  -->
 
 ## MPI
 
-Mientras que OpenMP satura la capacidad de procesamiento de una sola máquina, escalar la computación a través de múltiples computadoras autónomas requiere MPI, la cual opera en un espacio de memoria distribuido. Acá los procesos (rango) no pueden acceder a las variables de los demás; los datos deben ser empaquetados explícitamente, enrutados a través de la interfaz de red y desempaquetados por el nodo receptor.
-
+Mientras que OpenMP te satura la capacidad de procesamiento de una sola máquina, escalar el cómputo a través de varias computadoras autónomas requiere MPI, que opera en un espacio de memoria distribuido. Acá los procesos (*ranks*) no pueden acceder a las variables de los demás; los datos se tienen que empaquetar explícitamente, enrutar a través de la interfaz de red y desempaquetar en el nodo receptor.
 
 ### Descomposición de Dominio
 
-El proceso raíz de MPI (Rango 0) utiliza `stb_image` para cargar la imagen completa en su memoria local.  Para paralelizar la carga de trabajo, este enorme arreglo de una dimensión (1D) debe dividirse lógicamente en subdominios y distribuirse a los rangos de los trabajadores. Una descomposición en bloques cartesianos 2D divide la imagen en una cuadrícula de cuadrados, lo que minimiza matemáticamente la relación perímetro-área de los subdominios, reduciendo teóricamente el volumen total de datos de frontera que deben ser comunicados.
+El proceso raíz de MPI (Rank 0) usa `stb_image` para cargar la imagen entera en su memoria local. Para paralelizar la carga de trabajo, este tremendo arreglo unidimensional (1D) se tiene que dividir lógicamente en subdominios y distribuirse a los *ranks* de los trabajadores. Una descomposición en bloques cartesianos 2D divide la imagen en una cuadrícula de cuadrados, lo que minimiza matemáticamente la relación perímetro-área de los subdominios, bajando teóricamente el volumen total de datos de frontera que hay que comunicar.
 
-Transmitir una columna vertical de una imagen requiere leer direcciones de memoria dispersas y no contiguas.  Aunque MPI proporciona tipos de datos derivados (`MPI_Type_vector` o `MPI_Type_create_subarray`) para manejar lecturas de columnas con paso, la sobrecarga de la CPU necesaria para empaquetar y desempaquetar continuamente estos bytes no contiguos desperdicia cualquier ahorro obtenido de la topología 2D. En consecuencia, la Descomposición por Filas 1D es superior.
+Transmitir una columna vertical de una imagen requiere leer direcciones de memoria dispersas y no contiguas. Aunque MPI te da tipos de datos derivados (`MPI_Type_vector` o `MPI_Type_create_subarray`) para manejar lecturas de columnas con *stride*, la sobrecarga de la CPU necesaria para empaquetar y desempaquetar continuamente estos bytes no contiguos te termina desperdiciando cualquier ahorro de la topología 2D. Por eso, la Descomposición por Filas 1D es superior.
 
-Debido a que cada fila se almacena de manera contigua en la memoria, el proceso raíz puede transmitir particiones completas de la imagen utilizando punteros de memoria, logrando el máximo rendimiento de ancho de banda de red con un sobrecosto de empaquetado de software casi nulo.
+Como cada fila se almacena de manera contigua en la memoria, el proceso raíz puede transmitir particiones enteras de la imagen usando punteros de memoria, logrando el máximo rendimiento de ancho de banda de red con un costo de empaquetado de software casi nulo.
 
-Dado que las alturas de las imágenes rara vez son perfectamente divisibles por el número de nodos activos del clúster, la operación `MPI_Scatter` (que exige fragmentos exactamente iguales) no nos servira, por lo que deberemos utilizar `MPI_Scatterv` y `MPI_Gatherv`.  Estas funciones permiten que el proceso raíz dicte un entero `sendcounts` único y un índice de memoria de desplazamientos inicial para cada rango individual, gestionando adecuadamente las filas residuales de la división.
+Como las alturas de las imágenes rara vez son perfectamente divisibles por el número de nodos activos del clúster, la operación `MPI_Scatter` (que te exige fragmentos exactamente iguales) no nos va a servir, así que vamos a tener que usar `MPI_Scatterv` y `MPI_Gatherv`. Estas funciones le permiten al proceso raíz dictar un entero `sendcounts` único y un índice de memoria de desplazamientos (*offsets*) inicial para cada *rank* individual, manejando como corresponde las filas residuales de la división.
 
+### El Mecanismo Halo Exchange
 
-### El Mecanismo Halo Hexchange
+El obstáculo fundamental en el filtrado espacial distribuido es resolver los cálculos en los límites de los subdominios. Una operación de vecindario, como una convolución Sobel de 5x5, requiere leer datos de píxeles hasta un radio de dos píxeles alrededor de la coordenada objetivo. Cuando un proceso MPI intenta calcular el gradiente para la fila más alta de su bloque de imagen asignado, los píxeles vecinos que necesita están en la memoria física del proceso que maneja la partición superior. Para resolver este aislamiento de memoria, la arquitectura implementa zonas fantasma o halos.
 
-El obstáculo fundamental en el filtrado espacial distribuido es resolver los cálculos en los límites de los subdominios.  Una operación de vecindario, como una convolución Sobel de 5x5, requiere leer datos de píxeles hasta un radio de dos píxeles alrededor de la coordenada objetivo.  Cuando un proceso MPI intenta calcular el gradiente para la fila más alta de su bloque de imagen asignado, los píxeles vecinos requeridos residen en la memoria física del proceso que gestiona la partición superior. Para resolver esta aislamiento de memoria, la arquitectura implementa zonas fantasma o halos.
+Cuando cada proceso aloja su matriz de destino local, reserva filas adicionales y vacías en los límites extremos superior e inferior. El grosor del halo que necesitás va a estar dictado por el radio del núcleo de convolución: un núcleo de 3x3 requiere un grosor de halo de 1 fila; un núcleo de 5x5 requiere un grosor de halo de 2 filas. Antes de ejecutar los bucles de procesamiento, todos los procesos MPI se frenan para armar una fase de comunicación "*halo exchange*". Cada proceso transmite sus filas de frontera reales a sus vecinos para llenar sus zonas fantasma y, al mismo tiempo, recibe las de sus vecinos para poblar las suyas propias.
 
-Cuando cada proceso asigna su matriz de destino local, asigna filas adicionales y vacías en los límites extremos superior e inferior. El grosor del halo requerido está dictado por el radio del núcleo de convolución: Un núcleo de 3x3 requiere un grosor de halo de 1 fila. Un núcleo de 5x5 requiere un grosor de halo de 2 filas. Antes de ejecutar los bucles de procesamiento, todos los procesos MPI se detienen para llevar a cabo una fase de comunicación "halo hexchange".  Cada proceso transmite sus filas de frontera verdaderas a sus vecinos para poblar sus zonas fantasma, y simultáneamente recibe las filas de frontera verdaderas de sus vecinos para poblar sus propias zonas fantasma.
+### Protocolos de Comunicación y Prevención de Deadlocks
 
-### Protocolos de Comunicación y Prevención de Interbloqueos
+Las implementaciones del intercambio de halo muy seguido emparejan las rutinas bloqueantes `MPI_Send` y `MPI_Recv` de forma secuencial. Si cada proceso intenta mandar datos al mismo tiempo sin publicar un búfer de recepción correspondiente, los búferes del protocolo de red se saturan al toque, lo que te termina clavando el sistema en un *deadlock* (interbloqueo).
 
-Las implementaciones del intercambio de halo muy seguido "emparejan" las rutinas bloqueantes `MPI_Send` y `MPI_Recv` de manera secuencial.  Si cada proceso intenta enviar simultáneamente sin publicar un búfer de recepción correspondiente, los búferes del protocolo de red se saturan rápidamente, lo que resulta en un bloqueo del sistema.
+La solución más robusta y estándar en la industria es usar la rutina `MPI_Sendrecv`. Esta función publica de forma simultánea una operación de envío y una de recepción, confiando en los *threads* asincrónicos internos de la biblioteca MPI para manejar el intercambio de datos, borrando de un plumazo el riesgo de bloqueos cíclicos.
 
-La solución más robusta y estándar en la industria es utilizar la rutina `MPI_Sendrecv`.  Esta función publica simultáneamente una operación de envío y una operación de recepción, confiando en los threads asíncronos internos de la biblioteca MPI para gestionar el intercambio de datos, eliminando por completo el riesgo de bloqueos cíclicos.
+Para una topología unidimensional por filas, el intercambio completo de halo te pide dos pasos simétricos:
 
-Para una topología unidimensional por filas, el intercambio completo de halo requiere dos pasos simétricos:
-1. **Intercambio Ascendente:** El rango $N$ envía sus filas reales más altas al rango $N-1$, y recibe filas fantasma del rango $N-1$ en su búfer fantasma superior.
-2. **Intercambio Descendente:** El Rango $N$ envía sus filas reales más bajas al Rango $N+1$, y recibe filas fantasma del Rango $N+1$ en su búfer fantasma inferior. Para preservar la uniformidad del algoritmo sin escribir lógica compleja para los casos extremos de los primeros (Rango 0) y últimos procesos, la arquitectura configura los límites extremos para comunicarse con el destino especializado `MPI_PROC_NULL`.  Llamar a `MPI_Sendrecv` dirigido a `MPI_PROC_NULL` ejecuta una no-operación inmediata y exitosa, permitiendo que el bloque de código estándar funcione sin problemas en todo el clúster.
+1. **Intercambio Ascendente:** El rank $N$ manda sus filas reales más altas al rank $N-1$, y recibe filas fantasma del rank $N-1$ en su búfer fantasma superior.
+2. **Intercambio Descendente:** El rank $N$ manda sus filas reales más bajas al rank $N+1$, y recibe filas fantasma del rank $N+1$ en su búfer fantasma inferior.
 
+Para mantener la uniformidad del algoritmo sin tener que andar escribiendo lógica compleja para los casos extremos de los primeros (Rank 0) y últimos procesos, la arquitectura configura los límites externos para comunicarse con el destino especializado `MPI_PROC_NULL`. Meter un `MPI_Sendrecv` dirigido a `MPI_PROC_NULL` ejecuta una no-operación inmediata y exitosa, dejando que el bloque de código estándar funcione sin dramas en todo el clúster.
 
 ---
-<!--  -->
 
 ## OpenMP + MPI
 
-Las supercomputadoras modernas tienen una estructura jerárquica: constan de cientos de nodos físicos conectados por redes de alta velocidad, donde cada nodo alberga multiprocesadores simétricos (SMP) con decenas de núcleos de CPU físicos.
+Las supercomputadoras modernas tienen una estructura jerárquica: consisten en cientos de nodos físicos conectados por redes de alta velocidad, donde cada nodo tiene multiprocesadores simétricos (SMP) con decenas de núcleos de CPU físicos.
 
-Implementar una aplicación MPI pura en esta arquitectura —instanciando un proceso MPI autónomo por núcleo físico— genera graves ineficiencias. La biblioteca MPI está diseñada para la comunicación en red. Cuando los procesos MPI que residen en la misma placa base física intercambian datos, la biblioteca suele almacenar innecesariamente la memoria en búferes mediante pilas de red virtualizadas o sistemas de sondeo de memoria compartida, lo que degrada artificialmente el ancho de banda de la memoria y consume grandes cantidades de RAM del sistema con búferes de contexto duplicados.
+Clavar una aplicación MPI pura en esta arquitectura —instanciando un proceso MPI autónomo por núcleo físico— te genera ineficiencias graves. La biblioteca MPI está pensada para la comunicación en red. Cuando los procesos MPI que están metidos en el mismo *mother* físico intercambian datos, la biblioteca suele meter la memoria en búferes innecesariamente mediante *stacks* de red virtualizadas o sistemas de sondeo de memoria compartida, lo que te tira abajo artificialmente el ancho de banda de la memoria y te devora la RAM del sistema con búferes de contexto duplicados.
 
-La solución definitiva es el modelo híbrido MPI + OpenMP. Este paradigma exige el lanzamiento de un único proceso MPI por nodo físico (o por zócalo de CPU). MPI se limita estrictamente a gestionar las comunicaciones masivas entre nodos (como `MPI_Scatterv` y los intercambios de halo). Una vez finalizada la sincronización de la red, el proceso MPI invoca OpenMP para generar hilos ligeros en los núcleos de la CPU local. Estos hilos ejecutan los complejos cálculos algorítmicos (posterización y convolución espacial) mediante memoria compartida, sin duplicar matrices ni invocar protocolos de red.
+La solución definitiva es el modelo híbrido MPI + OpenMP. Este paradigma te exige lanzar un único proceso MPI por nodo físico (o por socket de CPU). MPI se limita estrictamente a manejar las comunicaciones masivas entre nodos (como `MPI_Scatterv` y los intercambios de halo). Una vez que termina la sincronización de la red, el proceso MPI invoca a OpenMP para levantar hilos livianos en los núcleos de la CPU local. Estos hilos ejecutan los cálculos complejos del algoritmo (posterización y convolución espacial) mediante memoria compartida, sin andar duplicando matrices ni llamando a protocolos de red.
 
-### Seguridad de subprocesos y selección de protocolo
+### Seguridad de Hilos y Selección de Protocolo
 
-La integración de multithreading con las comunicaciones de red invariablemente introduce riesgos. Si varios subprocesos de OpenMP intentan invocar funciones MPI simultáneamente, el estado interno de la biblioteca MPI se puede corromper, provocando fallos de segmentación.
+Combinar *multithreading* con comunicaciones de red te mete riesgos de cabeza. Si varios hilos de OpenMP intentar invocar funciones MPI al mismo tiempo, el estado interno de la biblioteca MPI se te puede corromper, provocando fallos de segmentación (*segmentation faults*).
 
-Para mitigar este riesgo, haremos uso del protocolo `MPI_Init_thread`, que requiere que el desarrollador solicite explícitamente un nivel específico de seguridad de subprocesos. Los niveles disponibles son:
+Para mitigar este riesgo, vamos a usar el protocolo `MPI_Init_thread`, que te pide que como desarrollador solicites explícitamente un nivel específico de seguridad de hilos. Los niveles que tenés disponibles son:
 
-- `MPI_THREAD_SINGLE:` La aplicación no puede ser multihilo.
-- `MPI_THREAD_FUNNELED`: La aplicación puede ser multihilo, pero solo el subproceso "maestro" original puede invocar rutinas MPI.
-- `MPI_THREAD_SERIALIZED`: Varios subprocesos pueden invocar llamadas MPI, pero la aplicación debe garantizar, mediante bloqueos de software, que estas llamadas nunca se superpongan cronológicamente.
-- `MPI_THREAD_MULTIPLE`: Cualquier hilo puede invocar llamadas MPI en cualquier momento, asumiendo la biblioteca MPI la responsabilidad total del bloqueo de mutex interno y la gestión de la cola.
+* `MPI_THREAD_SINGLE`: La aplicación no puede usar multihilo.
+* `MPI_THREAD_FUNNELED`: La aplicación puede tener varios hilos, pero solo el hilo "maestro" original puede llamar a las rutinas de MPI.
+* `MPI_THREAD_SERIALIZED`: Varios hilos pueden invocar llamadas MPI, pero tu aplicación tiene que garantizar, mediante bloqueos por software, que estas llamadas jamás se pisen en el tiempo.
+* `MPI_THREAD_MULTIPLE`: Cualquier hilo puede mandar llamadas MPI en cualquier momento, y la biblioteca MPI se hace cargo totalmente del bloqueo de mutex interno y del manejo de las colas.
 
+Si bien `MPI_THREAD_MULTIPLE` te da la mayor flexibilidad, garantizar la seguridad a este nivel hace que la biblioteca MPI tenga que meter un bloqueo interno intensivo, lo que te frena de entrada el rendimiento de la comunicación y te tira abajo el rendimiento general del clúster.
 
-Si bien `MPI_THREAD_MULTIPLE` ofrece la mayor flexibilidad, garantizar la seguridad a este nivel requiere que la biblioteca MPI realice un bloqueo interno intensivo, lo que restringe fundamentalmente el rendimiento de la comunicación y degrada significativamente el rendimiento general del clúster.
+Por lo tanto, el patrón de diseño óptimo para el pipeline de cartoonización es el estilo "Master-Only" usando `MPI_THREAD_FUNNELED`. Con esta arquitectura, las comunicaciones de red se coordinan totalmente afuera de las regiones paralelas de OpenMP. El hilo maestro maneja por su cuenta los intercambios de halo `MPI_Sendrecv`, actualizando las "zonas fantasma" locales. Una vez que la memoria localizada quedó totalmente coherente, el hilo maestro clava un `#pragma omp parallel for`, liberando los hilos de cómputo a lo largo de la matriz sin riesgo de tener contención en la red.
 
-Por lo tanto, el patrón de diseño óptimo para la canalización de caricaturización es el estilo "Master-Only" que utiliza `MPI_THREAD_FUNNELED`. Bajo esta arquitectura, la ejecución algorítmica se realiza completamente fuera de las regiones paralelas de OpenMP para coordinar la red. El hilo maestro gestiona de forma autónoma los intercambios de halo `MPI_Sendrecv`, actualizando las "zonas fantasma" locales. Una vez que la memoria localizada es totalmente coherente, el hilo maestro invoca `#pragma omp parallel for`, liberando los hilos de cómputo a través de la matriz sin riesgo de contención de red.
+### Mitigación de Bottlenecks en NUMA
 
-### Mitigación de bottelnecks en NUMA
+Un problema de rendimiento enorme en arquitecturas híbridas que corren en nodos con múltiples sockets (por ejemplo, configuraciones duales AMD EPYC o Intel Xeon) es el efecto NUMA (*Non-Uniform Memory Access*).
 
-Un problema de rendimiento significativo en arquitecturas híbridas que se ejecutan en nodos con múltiples sockets (por ejemplo, configuraciones duales AMD EPYC o Intel Xeon) es el efecto de NUMA (Non Uniform Memory Access).
+En un sistema NUMA, los módulos de RAM físicos están conectados directo a sockets de CPU específicos. Si un hilo que está corriendo en la CPU 0 quiere acceder a una matriz que está físicamente en el banco de RAM de la CPU 1, los datos tienen que cruzar la interconexión entre sockets (como Intel QPI o AMD Infinity Fabric), lo que te genera penalizaciones de latencia importantes.
 
-En un sistema NUMA, los módulos de RAM físicos están conectados directamente a sockets de CPU específicos. Si un hilo que se ejecuta en la CPU 0 intenta acceder a una matriz ubicada físicamente en el banco de RAM conectado a la CPU 1, los datos deben atravesar la interconexión entre sockets (como Intel QPI o AMD Infinity Fabric), lo que genera importantes penalizaciones de latencia.
+En el modelo híbrido con un único proceso, el hilo maestro suele alojar todos los búferes de memoria metiendo rutinas `malloc` estándar antes de levantar los hilos. La política de gestión de memoria por defecto del sistema operativo le clava estas asignaciones exclusivamente al nodo NUMA local del hilo maestro. Como consecuencia, cuando OpenMP distribuye el cálculo, la mitad de los hilos activos van a sufrir latencia de memoria, limitándote la escalabilidad del algoritmo.
 
-En el modelo híbrido con un solo nodo maestro, el hilo maestro suele asignar todos los búferes de memoria mediante rutinas `malloc` estándar antes de crear los hilos. La política de administración de memoria predeterminada del sistema operativo asigna estas asignaciones exclusivamente al nodo NUMA local del hilo maestro. En consecuencia, cuando OpenMP distribuye el cálculo, la mitad de los hilos activos tendrán latencia de memoria, limitando la escalabilidad del algoritmo.
-
-Para evitar esto, se deben configurar variables de entorno OpenMP, como `OMP_PLACES=cores` y `OMP_PROC_BIND=spread`, que asignan los hilos a núcleos de hardware específicos. Además, aplicar una política de inicialización de memoria de "primer contacto" —donde los hilos dentro de una región paralela, en lugar del hilo principal, ponen a cero inicialmente las matrices asignadas— obliga al sistema operativo a distribuir las páginas de memoria física entre todos los nodos NUMA disponibles, alineando la distribución de memoria con la distribución de procesamiento y restaurando el ancho de banda máximo de la memoria.
+Para zafar de esto, tenés que configurar las variables de entorno de OpenMP como `OMP_PLACES=cores` y `OMP_PROC_BIND=spread`, que te atan los hilos a núcleos de hardware específicos. Además, si aplicás una política de inicialización de memoria de "*first-touch*" (primer contacto) —donde los hilos adentro de una región paralela, en vez del hilo principal, ponen en cero inicialmente las matrices asignadas— obligás al sistema operativo a repartir las páginas de memoria física entre todos los nodos NUMA disponibles. Esto te alinea la distribución de la memoria con la del procesamiento y te devuelve el ancho de banda máximo de la memoria.
 
 **¿Por qué esto aplica a nuestro proyecto?**
 
-En la implementación actual de *filters.c*, funciones como *apply_blur*
-y *apply_sobel* realizan bucles de inicialización secuenciales para establecer los búferes en negro (`img_out[i] = 0;`) antes de ejecutar la lógica de filtrado. Si simplemente encapsula los bucles de cálculo subsiguientes con directivas OpenMP sin paralelizar estos bucles de inicialización, el hilo principal realizará el "primer acceso" a las páginas de memoria, asignándolas exclusivamente a su propio socket (nodo NUMA). De esta manera, los hilos de trabajo en otros sockets tendrán una alta latencia de acceso remoto a la memoria.
+En la implementación actual de *filters.c*, funciones como *apply_blur* y *apply_sobel* meten bucles de inicialización secuenciales para dejar los búferes en negro (`img_out[i] = 0;`) antes de correr la lógica de filtrado. Si simplemente encapsulás los bucles de cálculo siguientes con directivas OpenMP sin paralelizar estos bucles de inicialización, el hilo principal va a hacer el "primer acceso" a las páginas de memoria, asignándolas exclusivamente a su propio socket (nodo NUMA). Así, los hilos de trabajo en los otros sockets van a tener una latencia alta por acceso remoto a la memoria.
 
 **¿Es necesario para el clúster?**
 
-- **Para garantizar la precisión:** No. El programa generará resultados correctos incluso sin ésto.
-- **Para mejorar el rendimiento y la escalabilidad:** Sí. Dado que se compila y ejecuta en un clúster (donde los nodos de cómputo tienen arquitecturas multisocket con un alto número de núcleos), ignorar la mitigación NUMA va a provocar que las curvas de speedup y eficiencia de OpenMP/Hybrid no escalen correctamente.
+* **Para garantizar la precisión:** No. El programa te va a tirar resultados correctos igual, incluso sin esto.
+* **Para mejorar el rendimiento y la escalabilidad:** Sí. Como se compila y se corre en un clúster (donde los nodos de cómputo tienen arquitecturas multisocket con un montón de núcleos), ignorar la mitigación NUMA va a hacer que las curvas de *speedup* y eficiencia de OpenMP/Híbrido no escalen como corresponde.
+
