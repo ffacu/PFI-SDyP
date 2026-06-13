@@ -75,7 +75,7 @@ for IMG in "${IMAGENES[@]}"; do
         echo -n "   [3/4] MPI Puro ($PROCESOS_MPI_PURO procesos)... "
         FILA_CSV="$IMG,$F,$P,MPI"
         for ((i=1; i<=ITERACIONES; i++)); do
-            SALIDA=$(mpirun --hostfile machinefile -np $PROCESOS_MPI_PURO ./bin/mpi -i "$IMG" -o "out_mpi.jpg" -f $F -p $P -n $PROCESOS_MPI_PURO)
+            SALIDA=$(mpirun --hostfile machinefile -np $PROCESOS_MPI_PURO ./bin/mpi -i "$IMG" -o "out_mpi.jpg" -f $F -p $P)
             TIEMPO=$(echo "$SALIDA" | grep "Tiempo de procesamiento" | awk '{print $4}')
             FILA_CSV="$FILA_CSV,$TIEMPO"
         done
@@ -88,7 +88,7 @@ for IMG in "${IMAGENES[@]}"; do
         echo -n "   [4/4] Híbrido ($NODO_HIB Nodos x $HILOS_HIB Hilos)... "
         FILA_CSV="$IMG,$F,$P,Hibrido"
         for ((i=1; i<=ITERACIONES; i++)); do
-            SALIDA=$(mpirun --hostfile machinefile -np $NODO_HIB ./bin/hibrido -i "$IMG" -o "out_hib.jpg" -f $F -p $P -t $HILOS_HIB -n $NODO_HIB)
+            SALIDA=$(mpirun --hostfile machinefile -np $NODO_HIB ./bin/hibrido -i "$IMG" -o "out_hib.jpg" -f $F -p $P -t $HILOS_HIB)
             TIEMPO=$(echo "$SALIDA" | grep "Tiempo de procesamiento" | awk '{print $4}')
             FILA_CSV="$FILA_CSV,$TIEMPO"
         done
