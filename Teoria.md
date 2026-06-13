@@ -73,13 +73,11 @@ Para acelerar el pipeline de cartoonización en multiprocesadores simétricos de
 
 Evaluar la matemática de la posterización o aplicar un núcleo de convolución a un píxel específico no depende, por su naturaleza, del valor recién calculado de ningún otro píxel. Así, el algoritmo se basa en el paralelismo a nivel de bucle, utilizando la directiva `#pragma omp parallel for` aplicada al bucle más externo (iterando sobre la altura de la imagen).
 
-OpenMP te da tres clases principales de planificación (*scheduling*):
+OpenMP tiene tres clases principales de planificación (*scheduling*), pero nosotros vamos a usar la estática ya que elimina las consultas al planificador en tiempo de ejecución, brindando la sobrecarga de sincronización de hilos más baja posible. Además, al asignar bloques masivos y contiguos de filas a hilos individuales, la planificación estática respeta los algoritmos de *prefetching* de caché L1/L2 del hardware, mejorando muchísimo la localidad espacial y el uso del ancho de banda de memoria.
 
-* **Planificación Dinámica (`schedule(dynamic)`):** Las iteraciones se distribuyen en tiempo de ejecución. Cuando un hilo completa una pequeña porción de trabajo, le consulta al planificador interno de OpenMP para obtener otra tarea. Aunque es excelente para cargas de trabajo muy impredecibles (como el trazado de rayos recursivo), la planificación dinámica introduce una sobrecarga de sincronización tremenda en el sistema operativo.
-* **Planificación Guiada (`schedule(guided)`):** Es similar a la dinámica, pero los tamaños de los bloques asignados van disminuyendo de forma exponencial con el tiempo, intentando balancear la carga mientras se minimiza la sobrecarga en las etapas finales.
 * **Planificación Estática (`schedule(static)`):** El espacio total de iteración se divide en grandes bloques contiguos de igual tamaño y se asigna permanentemente a hilos específicos en tiempo de compilación.
 
-Para las operaciones que se mapean sobre matrices rectangulares, la complejidad computacional por píxel es totalmente determinista y uniforme. Por lo tanto, la planificación estática es la opción óptima, ya que elimina las consultas al planificador en tiempo de ejecución, dándote la sobrecarga de sincronización de hilos más baja posible. Además, al asignar bloques masivos y contiguos de filas a hilos individuales, la planificación estática respeta los algoritmos de *prefetching* de caché L1/L2 del hardware, mejorando muchísimo la localidad espacial y el uso del ancho de banda de memoria.
+
 
 ### Prevención de False Sharing y Race Conditions
 

@@ -9,35 +9,44 @@
 
 
 int main(int argc, char *argv[]) {
-    
+
     char *input_file = NULL;
     char *output_file = "output.png";
     int filter_size = 3;
     int poster_levels = 9;
+    int num_threads = 0;   // 0 significa que usara el maximo disponible por defecto
     int opt;
 
-    /* 
-      Parseo de argumentos: getopt lee argv buscando flags definidos en la cadena "i:o:f:p:"
-      Los dos puntos (:) indican que el flag espera un valor (ej: -i foto.png)
-    */
-    while ((opt = getopt(argc, argv, "i:o:f:p:")) != -1) {
+    while ((opt = getopt(argc, argv, "i:o:f:p:t:")) != -1) {
         switch (opt) {
-            case 'i': input_file = optarg; break; 
+            case 'i': input_file = optarg; break;
             case 'o': output_file = optarg; break;
-            case 'f': filter_size = atoi(optarg); break; 
+            case 'f': filter_size = atoi(optarg); break;
             case 'p': poster_levels = atoi(optarg); break;
+            case 't': num_threads = atoi(optarg); break; // Capturamos los hilos
             default:
-                fprintf(stderr, "Uso: %s -i <imagen> [-o <salida>] [-f <filtro 3|5>] [-p <niveles 3|9>]\n", argv[0]);
+                fprintf(stderr, "Uso: %s -i <img.png> [-o <out.png>] [-f <filtro 3|5>] [-p <niveles 3|9>] [-t <hilos>]\n", argv[0]);
                 exit(EXIT_FAILURE);
         }
+    }
+
+    // Aplicar la configuracion de hilos antes de cualquier directiva #pragma omp
+    if (num_threads > 0) {
+        omp_set_num_threads(num_threads);
     }
 
     if (input_file == NULL) {
         fprintf(stderr, "Error: es obligatorio especificar una imagen de entrada (-i).\n");
         exit(EXIT_FAILURE);
     }
+
     if (filter_size != 3 && filter_size != 5) {
         fprintf(stderr, "Error: el tamaño del filtro (-f) debe ser 3 o 5.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (poster_levels != 3 && poster_levels != 9) {
+        fprintf(stderr, "Error: el nivel de posterizado (-p) debe ser 3 o 9.\n");
         exit(EXIT_FAILURE);
     }
 
@@ -71,28 +80,22 @@ int main(int argc, char *argv[]) {
     struct timeval start, end;
     gettimeofday(&start, NULL);
 
-    printf("Info: convirtiendo a escala de grises ...\n");
-    // Las funciones de filters_parallel.c y posterize_parallel.c ya contienen
-    // las directivas #pragma omp parallel for schedule(static) internamente.
+    // Convirtiendo a escala de grises
     convert_to_grayscale(img_orig, img_gray, width, height);
 
-    printf("Info: aplicando borroneado (filtro %dx%d) ...\n", filter_size, filter_size);
+    // Aplicando borroneado
     apply_blur(img_gray, img_blur, width, height, filter_size);
 
     int sobel_threshold = 70; 
-    printf("Info: detectando bordes (filtro de Sobel) ...\n");
+    // Detectando bordes
     apply_sobel(img_blur, img_edges, width, height, sobel_threshold);
 
-    printf("Info: aplicando posterizado (%d niveles) ...\n", poster_levels);
-    
+    // Posterizado
     unsigned char lut[256];
     generate_lut(lut, poster_levels);
-    
     apply_posterize(img_orig, img_final, width, height, lut);
-
-    printf("Info: fusionando bordes y colores para crear el Cartoon ...\n");
     
-    // Fusión de bordes y colores posterizados (paralelizada con OpenMP)
+    // Fusion de bordes y colores posterizados
     #pragma omp parallel for schedule(static)
     for (int i = 0; i < width * height; i++) {
         if (img_edges[i] == 0) {

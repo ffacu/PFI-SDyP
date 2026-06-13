@@ -41,11 +41,7 @@ Con esto le estamos pasando argumentos a la función getopt():
 
 ### OpenMP
 ```bash
-./bin/omp -i mi_foto.png -o output.png -f 5 -p 3
-```
-Para controlar la cantidad de hilos:
-```bash
-OMP_NUM_THREADS=4 ./bin/omp -i mi_foto.png -o output.png -f 5 -p 3
+./bin/omp -i mi_foto.png -o output.png -f 5 -p 3 -t num_hilos
 ```
 
 ### MPI
@@ -63,5 +59,5 @@ mpirun -np 4 ./bin/mpi -i mi_foto.png -o output.png -f 5 -p 3
 Combina procesos MPI con hilos OpenMP por proceso.
 Reemplazar `<N>` por la cantidad de procesos MPI y `<T>` por la cantidad de hilos por proceso.
 ```bash
-mpirun -np <N> --bind-to socket ./bin/hibrido -i mi_foto.png -o output.png -f 5 -p 3
+mpirun -np <N> ./bin/hibrido -i mi_foto.png -o output.png -f 5 -p 3 -t <T>
 ```

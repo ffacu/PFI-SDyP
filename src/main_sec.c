@@ -40,7 +40,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    if (poster_levels != 3 && filter_size != 9) {
+    if (poster_levels != 3 && poster_levels != 9) {
         fprintf(stderr, "Error: el nivel de posterizado (-p) debe ser 3 o 9.\n");
         exit(EXIT_FAILURE);
     }
@@ -78,18 +78,15 @@ int main(int argc, char *argv[]) {
     struct timeval start, end;
     gettimeofday(&start, NULL);
 
-    printf("Info: convirtiendo a escala de grises ...\n");
+    // Convertir a escala de grises
     convert_to_grayscale(img_orig, img_gray, width, height);
 
-    printf("Info: aplicando borroneado (filtro %dx%d) ...\n", filter_size, filter_size);
+    // Aplicar borroneado
     apply_blur(img_gray, img_blur, width, height, filter_size);
 
     // Definimos un umbral para detectar los bordes (valores entre 50 y 150 andan ok)
     int sobel_threshold = 70; 
-    printf("Info: detectando bordes (filtro de Sobel) ...\n");
     apply_sobel(img_blur, img_edges, width, height, sobel_threshold);
-
-    printf("Info: aplicando posterizado (%d niveles) ...\n", poster_levels);
     
     // Generamos la LUT
     unsigned char lut[256];
@@ -98,9 +95,7 @@ int main(int argc, char *argv[]) {
     // Aplicamos la LUT a la imagen original (que todavia tiene su color RGB intacto)
     apply_posterize(img_orig, img_final, width, height, lut);
 
-    printf("Info: fusionando bordes y colores para crear el Cartoon ...\n");
-    
-    // Recorremos todos los pixeles uno por uno
+    // Fusionando bordes. Recorremos todos los pixeles uno por uno
     for (int i = 0; i < width * height; i++) {
         // img_edges tiene 1 solo canal. Si es 0, es un borde detectado por Sobel
         if (img_edges[i] == 0) {

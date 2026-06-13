@@ -74,17 +74,12 @@ int main(int argc, char *argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     
-    /* ========================================
-     * Parseo de argumentos (todos los rangos)
-     * ======================================== */
     char *input_file = NULL;
     char *output_file = "output.png";
     int filter_size = 3;
     int poster_levels = 9;
     int opt;
 
-    // Reiniciar optind para que getopt funcione correctamente con MPI
-    optind = 1;
     while ((opt = getopt(argc, argv, "i:o:f:p:")) != -1) {
         switch (opt) {
             case 'i': input_file = optarg; break;
@@ -105,15 +100,19 @@ int main(int argc, char *argv[]) {
         MPI_Finalize();
         exit(EXIT_FAILURE);
     }
+    
     if (filter_size != 3 && filter_size != 5) {
         if (rank == 0) fprintf(stderr, "Error: el tamaño del filtro (-f) debe ser 3 o 5.\n");
         MPI_Finalize();
         exit(EXIT_FAILURE);
     }
 
-    /* ========================================
-     * Carga de imagen (solo Rank 0)
-     * ======================================== */
+    if (poster_levels != 3 && poster_levels != 9) {
+        fprintf(stderr, "Error: el nivel de posterizado (-p) debe ser 3 o 9.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Carga de imagen (solo Rank 0)
     int width = 0, height = 0, channels = 0;
     unsigned char *img_orig = NULL;
 
@@ -127,16 +126,12 @@ int main(int argc, char *argv[]) {
         printf("Info [Rank 0]: imagen cargada: %d x %d pixeles, %d procesos MPI.\n", width, height, size);
     }
 
-    /* ========================================
-     * Broadcast de dimensiones a todos los rangos
-     * ======================================== */
+    // Broadcast de dimensiones a todos los rangos
     MPI_Bcast(&width,    1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&height,   1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Bcast(&channels, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-    /* ========================================
-     * Descomposición del dominio: partición 1D por filas
-     * ======================================== */
+    // Descomposición del dominio: partición 1D por filas
     int base_rows = height / size;
     int remainder = height % size;
     
@@ -164,9 +159,7 @@ int main(int argc, char *argv[]) {
     int local_rows  = row_counts[rank];
     int local_pixels = local_rows * width;
     
-    /* ========================================
-     * Asignación de buffers locales
-     * ======================================== */
+    // Asignación de buffers locales
     unsigned char *local_rgb   = (unsigned char *)malloc(local_pixels * 3);
     unsigned char *local_gray  = (unsigned char *)malloc(local_pixels);
     unsigned char *local_edges = (unsigned char *)malloc(local_pixels);
@@ -177,9 +170,11 @@ int main(int argc, char *argv[]) {
         MPI_Abort(MPI_COMM_WORLD, 1);
     }
 
-    /* ========================================
-     * Distribución de la imagen RGB (Scatterv)
-     * ======================================== */
+    if (rank == 0) {
+        printf("Info: iniciando toma de tiempos.\n");
+    }
+
+    // Distribución de la imagen RGB (Scatterv)
     struct timeval start, end;
     MPI_Barrier(MPI_COMM_WORLD);
     if (rank == 0) gettimeofday(&start, NULL);
@@ -188,18 +183,14 @@ int main(int argc, char *argv[]) {
                  local_rgb, local_pixels * 3, MPI_UNSIGNED_CHAR,
                  0, MPI_COMM_WORLD);
 
-    /* ========================================
-     * Paso 1: Conversión a escala de grises (sin halos)
-     * ======================================== */
+    // Conversión a escala de grises (sin halos)
     convert_to_grayscale(local_rgb, local_gray, width, local_rows);
 
-    /* ========================================
-     * Paso 2: Borroneado con halo exchange
-     * ======================================== */
+    // Borroneado con halo exchange
     int blur_offset = filter_size / 2;
     
     // Calcular halos reales para este rango
-    // Rank 0 no tiene halo superior, último rank no tiene halo inferior
+    // Rank 0 no tiene halo superior, y último rank no tiene halo inferior
     // Esto preserva el comportamiento de la versión secuencial donde
     // las filas frontera de la imagen quedan en negro
     int blur_ghost_top    = (rank == 0)        ? 0 : blur_offset;
@@ -224,9 +215,6 @@ int main(int argc, char *argv[]) {
     unsigned char *local_blur = (unsigned char *)malloc(local_pixels);
     memcpy(local_blur, blur_ext + blur_ghost_top * width, local_pixels);
 
-    /* ========================================
-     * Paso 3: Detección de bordes (Sobel) con halo exchange
-     * ======================================== */
     int sobel_offset = 1;  // Sobel siempre usa kernel 3x3
     
     int sobel_ghost_top    = (rank == 0)        ? 0 : sobel_offset;
@@ -250,16 +238,12 @@ int main(int argc, char *argv[]) {
     // Extraer las filas reales del resultado de bordes
     memcpy(local_edges, edges_ext + sobel_ghost_top * width, local_pixels);
 
-    /* ========================================
-     * Paso 4: Posterizado (sin halos, aplicado a RGB original)
-     * ======================================== */
+    // Posterizado (sin halos, aplicado a RGB original)
     unsigned char lut[256];
     generate_lut(lut, poster_levels);
     apply_posterize(local_rgb, local_final, width, local_rows, lut);
 
-    /* ========================================
-     * Paso 5: Fusión de bordes y colores posterizados
-     * ======================================== */
+    // Fusión de bordes y colores posterizados
     for (int i = 0; i < local_pixels; i++) {
         if (local_edges[i] == 0) {
             int idx_rgb = i * 3;
@@ -269,9 +253,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    /* ========================================
-     * Recolección del resultado en Rank 0 (Gatherv)
-     * ======================================== */
+    // Recolección del resultado en Rank 0 (Gatherv)
     unsigned char *img_final = NULL;
     if (rank == 0) {
         img_final = (unsigned char *)malloc(width * height * 3);
@@ -281,11 +263,10 @@ int main(int argc, char *argv[]) {
                 img_final, sendcounts_rgb, displs_rgb, MPI_UNSIGNED_CHAR,
                 0, MPI_COMM_WORLD);
 
-    /* ========================================
-     * Finalización: guardar resultado y reportar tiempos
-     * ======================================== */
+    // Guardar resultado y reportar tiempos
     if (rank == 0) {
         gettimeofday(&end, NULL);
+        printf("Info: fin de toma de tiempos.\n");
         
         double time_taken = (end.tv_sec - start.tv_sec) * 1000.0;
         time_taken += (end.tv_usec - start.tv_usec) / 1000.0;
@@ -302,9 +283,7 @@ int main(int argc, char *argv[]) {
         free_image(img_orig);
     }
 
-    /* ========================================
-     * Limpieza de memoria
-     * ======================================== */
+    // Limpieza de memoria
     free(local_rgb);
     free(local_gray);
     free(local_blur);

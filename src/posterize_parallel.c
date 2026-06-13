@@ -1,7 +1,7 @@
 #include "posterize.h"
 
 
-// Generacion de Lookup Table (secuencial: solo 256 iteraciones, no amerita paralelizar)
+// Generacion de Lookup Table (secuencial)
 void generate_lut(unsigned char lut[256], int levels) {
     if (levels < 2) levels = 2; // Evitamos division por cero
 
@@ -22,7 +22,7 @@ void generate_lut(unsigned char lut[256], int levels) {
 }
 
 
-// Aplicar posterizado (versión paralela)
+// Aplicar posterizado (version paralela)
 void apply_posterize(unsigned char *img_in, unsigned char *img_out, int width, int height, unsigned char lut[256]) {
     int total_elements = width * height * 3; // 3 canales (RGB)
 

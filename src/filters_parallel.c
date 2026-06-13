@@ -2,7 +2,7 @@
 #include <stdlib.h>
 
 
-// Escala de grises (versión paralela)
+// Escala de grises (version paralela)
 void convert_to_grayscale(unsigned char *img_in, unsigned char *img_out, int width, int height) {
     int num_pixels = width * height;
     
@@ -19,14 +19,11 @@ void convert_to_grayscale(unsigned char *img_in, unsigned char *img_out, int wid
 }
 
 
-// Borroneado (Box blur) (versión paralela)
+// Borroneado (Box blur) (version paralela)
 void apply_blur(unsigned char *img_in, unsigned char *img_out, int width, int height, int filter_size) {
-    int offset = filter_size / 2; // Para 3x3 es 1, para 5x5 es 2
+    int offset = filter_size / 2;                 // Para 3x3 es 1, para 5x5 es 2
     int num_elements = filter_size * filter_size; // 9 o 25
 
-    // First-Touch NUMA: inicializamos en paralelo para que cada hilo
-    // "toque" las páginas de memoria que luego va a calcular.
-    // Esto fuerza al SO a alojar las páginas en el nodo NUMA del hilo que las usa.
     #pragma omp parallel for schedule(static)
     for (int i = 0; i < width * height; i++) {
         img_out[i] = 0;
@@ -74,7 +71,6 @@ void apply_sobel(unsigned char *img_in, unsigned char *img_out, int width, int h
         { 1,  2,  1}
     };
 
-    // First-Touch NUMA: inicializamos en paralelo
     #pragma omp parallel for schedule(static)
     for (int i = 0; i < width * height; i++) {
         img_out[i] = 0; 
