@@ -10,10 +10,16 @@
 
 \titleformat{\section}[block]
   {\bfseries\Large}
-  {}
-  {0pt}
+  {\thesection.}
+  {0.5em}
   {} % título sin adornos
   [\vspace{0.3ex}\titlerule]
+
+\titleformat{\subsection}[block]
+  {\bfseries\large}
+  {\thesubsection.}
+  {0.5em}
+  {}
 
 \begin{document}
 
@@ -35,7 +41,7 @@
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
                 % Project Title
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
-                \textbf{\textit{Proyecto Final Integrador\\Sistemas Distruibuidos y Paralelos}}
+                \textbf{\textit{Proyecto Final Integrador\\Sistemas Distribuidos y Paralelos}}
                 \bigbreak%
 
                 \textit{Procesamiento de Imágenes}
@@ -75,6 +81,11 @@
 
     
     % -------------------------------------------------------------------
+    % List of Abbreviations
+    % -------------------------------------------------------------------
+    \input{../chapters/abreviaturas.tex}
+
+    % -------------------------------------------------------------------
     % Contents
     % -------------------------------------------------------------------
     \tableofcontents
@@ -84,13 +95,14 @@
     \mainmatter%
     
     \input{../chapters/introduccion.tex}
-    \input{../chapters/utilities.tex}
+    \input{../chapters/diseño.tex}
+    \input{../chapters/benchmarking.tex}
     \input{../chapters/conclusion.tex}
 
     % -------------------------------------------------------------------
     % Bibliography/References  -  Harvard Style was used in this report
     % -------------------------------------------------------------------
-    \bibliography{references}  %  Patashnik, O. (1988), BibTEXing. Documentation for general BibTEX users.
+    % \bibliography{references}  %  Patashnik, O. (1988), BibTEXing. Documentation for general BibTEX users.
 
     
 \end{document}

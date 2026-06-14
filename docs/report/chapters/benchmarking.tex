@@ -1,0 +1,158 @@
+\chapter{Análisis de Desempeño y Benchmarking}
+
+Para evaluar de forma rigurosa el rendimiento de las cuatro implementaciones desarrolladas, se diseñó un benchmarking script que somete a cada versión del programa a seis configuraciones distintas de trabajo computacional, combinando tres resoluciones de imagen ($800 \times 800$, $2000 \times 2000$ y $5000 \times 5000$~píxeles) con dos perfiles de filtrado: un \textit{perfil liviano} (filtro de $3 \times 3$ con 3~niveles de posterizado) y un \textit{perfil pesado} (filtro de $5 \times 5$ con 9~niveles de posterizado). Cada configuración se ejecutó durante 10~iteraciones consecutivas para obtener muestras estadísticamente representativas. Las pruebas se realizaron sobre un clúster donde OpenMP utilizó 32~núcleos dentro de un único nodo, mientras que MPI y la versión Híbrida emplearon 128~núcleos distribuidos en 4~nodos ($4\ \mathit{nodos} \times 32\ \mathit{cores}$).
+
+A continuación se presenta el análisis detallado de cada escenario, seguido de una comparación general, las curvas de \textit{Speedup} y las curvas de \textit{Eficiencia}.
+
+
+%--------------------------------------------------------------------
+\section{Imagen de \texorpdfstring{$800 \times 800$}{800x800} píxeles}
+
+\subsection{Configuración: filtro \texorpdfstring{$3 \times 3$}{3x3}, 3 niveles}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../resources/800_3_3.png}
+    \caption{Comparación de tiempos de ejecución --- Imagen $800 \times 800$, filtro $3 \times 3$, 3~niveles de posterizado.}
+    \label{fig:800_3_3}
+\end{figure}
+
+En la configuración más liviana del benchmark, la carga computacional resulta extremadamente reducida: la versión secuencial completa el pipeline en aproximadamente 52~ms de forma estable a lo largo de las 10~iteraciones. OpenMP demuestra una aceleración notable, reduciendo los tiempos a cerca de 8~ms con una variabilidad mínima entre iteraciones. Sin embargo, la versión MPI exhibe el comportamiento más desfavorable de los cuatro modelos, con tiempos que oscilan entre 51~ms y 71~ms, superando incluso a la versión secuencial en la mayoría de las iteraciones. Este resultado evidencia que, para un volumen de datos tan reducido ($800 \times 800 = 640{.}000$~píxeles), el \textit{overhead} inherente a la comunicación por red (distribución mediante \texttt{MPI\_Scatterv}, intercambio de halos y recolección con \texttt{MPI\_Gatherv}) supera al beneficio obtenido por la paralelización del cómputo entre los 128~núcleos. La versión Híbrida se posiciona en un punto intermedio, con tiempos alrededor de 35~ms: si bien logra reducir el tiempo respecto de la versión secuencial gracias al cómputo paralelo interno con OpenMP, aún arrastra la penalización de la coordinación entre los 4~nodos MPI.
+
+
+\subsection{Configuración: filtro \texorpdfstring{$5 \times 5$}{5x5}, 9 niveles}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../resources/800_5_9.png}
+    \caption{Comparación de tiempos de ejecución --- Imagen $800 \times 800$, filtro $5 \times 5$, 9~niveles de posterizado.}
+    \label{fig:800_5_9}
+\end{figure}
+
+Al incrementar la complejidad del filtrado (kernel de $5 \times 5$, que implica 25~operaciones por píxel en lugar de 9, y 9~niveles de posterizado), los tiempos secuenciales ascienden a aproximadamente 76~ms. OpenMP continúa liderando con tiempos cercanos a 9~ms, prácticamente sin degradación respecto de la configuración anterior, lo que demuestra que el aumento de carga aritmética se distribuye eficientemente entre los 32~hilos disponibles. La versión MPI se mantiene cercana a los tiempos del modelo secuencial, oscilando entre 65~ms y 85~ms, pero por debajo respecto de la línea base secuencial en la mayoría de iteraciones, logrando una aceleración positiva y justificando el costo de la comunicación entre los 128~procesos. La versión Híbrida mantiene su comportamiento estable alrededor de 36~ms, confirmando que el cuello de botella en esta resolución no es el cómputo sino la latencia de comunicación entre nodos.
+
+
+
+%--------------------------------------------------------------------
+\section{Imagen de \texorpdfstring{$2000 \times 2000$}{2000x2000} píxeles}
+
+\subsection{Configuración: filtro \texorpdfstring{$3 \times 3$}{3x3}, 3 niveles}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../resources/2000_3_3.png}
+    \caption{Comparación de tiempos de ejecución --- Imagen $2000 \times 2000$, filtro $3 \times 3$, 3~niveles de posterizado.}
+    \label{fig:2000_3_3}
+\end{figure}
+
+Con una imagen de resolución intermedia ($2000 \times 2000 = 4{.}000{.}000$~píxeles, un volumen $6{.}25$~veces superior al escenario anterior), las diferencias entre los paradigmas comienzan a acentuarse. La versión secuencial, como es de esperar, se mantiene estable aproximadamente en torno a 315~ms. OpenMP reduce drásticamente este tiempo a un rango de 25--40~ms, confirmando una escalabilidad sólida al aumentar el tamaño del problema. La versión MPI, en cambio, revela una alta inestabilidad: sus tiempos fluctúan entre 385~ms y 755~ms, con picos que casi duplican el tiempo secuencial. Esta variabilidad se le puede atribuir a la congestión de red y a la contención en los buffers de comunicación cuando 128~núcleos intentan intercambiar halos y sincronizarse de forma simultánea. La versión Híbrida presenta un comportamiento bimodal interesante: en la mayoría de las iteraciones se mantiene alrededor de 188~ms y por debajo de la línea base secuencial, pero en las iteraciones 5 y 6 se observan picos de hasta 370~ms, posiblemente causados por interferencia puntual en la red del clúster o por desequilibrios en la planificación de procesos del SO.
+
+
+\subsection{Configuración: filtro \texorpdfstring{$5 \times 5$}{5x5}, 9 niveles}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../resources/2000_5_9.png}
+    \caption{Comparación de tiempos de ejecución --- Imagen $2000 \times 2000$, filtro $5 \times 5$, 9~niveles de posterizado.}
+    \label{fig:2000_5_9}
+\end{figure}
+
+El perfil pesado sobre la imagen de $2000 \times 2000$ eleva el tiempo secuencial a aproximadamente 460~ms (con un valor anómalo en la iteración~5 de 270~ms, probablemente causado por un efecto de caché favorable en esa ejecución particular). OpenMP mantiene tiempos consistentemente bajos entre 35~ms y 40~ms, demostrando que la mayor carga aritmética del kernel de $5 \times 5$ se paraleliza sin degradación apreciable. MPI presenta su peor comportamiento en esta configuración, con picos que alcanzan los 790~ms ---casi el doble del tiempo secuencial--- y una dispersión extrema entre iteraciones (rango de 390~ms a 790~ms), confirmando que la sobrecarga de comunicación de red con 128~procesos se convierte en un cuello de botella dominante. La versión Híbrida se mantiene generalmente estable cerca de 180~ms, aunque nuevamente se observan picos esporádicos (iteraciones 3 y 10 por encima de 340~ms), coherentes con el patrón de interferencia de red observado en la configuración anterior.
+
+
+%--------------------------------------------------------------------
+\section{Imagen de \texorpdfstring{$5000 \times 5000$}{5000x5000} píxeles}
+
+\subsection{Configuración: filtro \texorpdfstring{$3 \times 3$}{3x3}, 3 niveles}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../resources/5000_3_3.png}
+    \caption{Comparación de tiempos de ejecución --- Imagen $5000 \times 5000$, filtro $3 \times 3$, 3~niveles de posterizado.}
+    \label{fig:5000_3_3}
+\end{figure}
+
+Al alcanzar la resolución máxima del benchmark ($5000 \times 5000 = 25{.}000{.}000$~píxeles), el escenario cambia significativamente respecto de las resoluciones menores. La versión secuencial presenta tiempos alrededor de 1950~ms, con caídas a 1150--1200~ms en las iteraciones 2, 7 y 8 (atribuibles a variaciones en la carga del sistema o a efectos de caché del procesador). OpenMP continúa ofreciendo la mejor aceleración absoluta, con tiempos estables entre 130~ms y 140~ms. La observación más relevante en esta resolución es que MPI logra nuevamente superar a la versión secuencial con tiempos entre 1320~ms y 1530~ms, lo que indica que el volumen de cómputo de 25~millones de píxeles justifica el costo de la comunicación MPI. La versión Híbrida consolida su posición intermedia con tiempos alrededor de 1070~ms, superando tanto a la versión secuencial como a MPI, y confirmando que la reducción del tráfico de red (de 128 a solo 4~procesos MPI) combinada con el paralelismo local de OpenMP resulta una estrategia más eficiente que MPI puro a gran escala.
+
+
+\subsection{Configuración: filtro \texorpdfstring{$5 \times 5$}{5x5}, 9 niveles}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../resources/5000_5_9.png}
+    \caption{Comparación de tiempos de ejecución --- Imagen $5000 \times 5000$, filtro $5 \times 5$, 9~niveles de posterizado.}
+    \label{fig:5000_5_9}
+\end{figure}
+
+La configuración más exigente del benchmark ($5000 \times 5000$ con kernel de $5 \times 5$ y 9~niveles) expone con máxima claridad la jerarquía de rendimiento entre las cuatro implementaciones. La versión secuencial alcanza los 2890~ms de forma estable (con una excepción en la iteración~7, que desciende a 1760~ms, nuevamente un caso atípico). OpenMP logra tiempos entre 160~ms y 170~ms, consolidando un speedup $10$ veces superior respecto del modelo secuencial. MPI mantiene tiempos entre 1310~ms y 1540~ms en la mayoría de las iteraciones, con un pico aislado de 2100~ms en la iteración~8, demostrando que, si bien la paralelización es efectiva a esta escala, la variabilidad introducida por la red sigue siendo un factor influyente. La versión Híbrida se estabiliza entre 1090~ms y 1190~ms, superando consistentemente tanto a la versión secuencial como a MPI puro, y posicionándose como la segunda opción más rápida después de OpenMP en un único nodo.
+
+
+%--------------------------------------------------------------------
+\section{Comparación General de Tiempos}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../resources/Comp_General.png}
+    \caption{Comparación general de tiempos --- Mínimo tiempo obtenido por cada implementación en las seis configuraciones de benchmark.}
+    \label{fig:comp_general}
+\end{figure}
+
+La vista consolidada de los mejores tiempos obtenidos en cada configuración permite visualizar con claridad las tendencias de escalabilidad de cada paradigma. Para las resoluciones pequeñas ($800 \times 800$), los cuatro modelos operan en un rango temporal estrecho (entre 8~ms y 71~ms), donde la diferencia absoluta entre el mejor y el peor caso resulta poco significativa en términos prácticos. Sin embargo, a medida que la resolución crece, las curvas divergen drásticamente.
+
+OpenMP (línea azul) se mantiene en la franja inferior del gráfico en todas las configuraciones, creciendo de forma suave y controlada: pasa de aproximadamente 8~ms en $800 \times 800$ a 160~ms en $5000 \times 5000$. Este crecimiento es proporcionalmente menor al aumento del volumen de datos, lo que confirma una paralelización altamente eficiente dentro de un único nodo.
+
+MPI (línea verde) exhibe la peor escalabilidad: si bien en algunas resoluciones sus tiempos superan a los de la versión secuencial, su curva crece de forma empinada y con alta variabilidad, reflejando la penalización acumulada de la comunicación entre 128~procesos.
+
+La versión Híbrida (línea morada) muestra un comportamiento intermedio consistente: su curva crece más lentamente que la de MPI, confirmando que reducir la cantidad de procesos MPI a solo 4 (uno por nodo) y delegar el paralelismo fino a OpenMP es una estrategia más escalable que utilizar MPI de forma exclusiva.
+
+La versión Secuencial (línea roja) sirve como referencia superior, con un crecimiento lineal respecto del volumen de datos.
+
+
+%--------------------------------------------------------------------
+\section{Análisis de Speedup}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../resources/Speedup.png}
+    \caption{Speedup de las implementaciones paralelas respecto de la versión secuencial en las seis configuraciones de benchmark. La línea punteada indica $S = 1$ (sin aceleración).}
+    \label{fig:speedup}
+\end{figure}
+
+El speedup, definido como la razón entre el tiempo de la versión secuencial y el tiempo de cada versión paralela (Ec.~\ref{eq:speedup}), cuantifica la aceleración real obtenida por cada paradigma:
+
+\begin{equation}
+\label{eq:speedup}
+S = \frac{T_{\text{secuencial}}}{T_{\text{paralelo}}}
+\end{equation}
+
+OpenMP alcanza speedups consistentemente elevados en todas las configuraciones, con un máximo de $11.51$ para la imagen de $2000 \times 2000$ con filtro de $3 \times 3$ y un valor de $10.75$ en la configuración más exigente ($5000 \times 5000$, $5 \times 5$). Estos valores, si bien están lejos del speedup ideal de $32$ (el número de núcleos utilizados), representan una aceleración significativa.
+
+MPI presenta speedups inferiores a 1 en todas las configuraciones de $800 \times 800$ y $2000 \times 2000$ (entre $0.69$ y $1.15$), lo que confirma cuantitativamente que la comunicación de red anula el beneficio del paralelismo para volúmenes de datos pequeños y medianos. Únicamente en la imagen de $5000 \times 5000$ supera ligeramente la línea de $S = 1$ (con valores de $1.08$ y $1.3$), indicando que solo a partir de esta escala la relación cómputo/comunicación se vuelve favorable.
+
+La versión Híbrida logra speedups moderados pero superiores a MPI en todos los casos, oscilando entre $1.51$ y $2.17$. Si bien estos valores son modestos comparados con OpenMP, superan consistentemente la línea de $S = 1$, lo que demuestra que la combinación de ambos paradigmas resulta viable incluso cuando la escala del problema no favorece a MPI puro.
+
+
+%--------------------------------------------------------------------
+\section{Análisis de Eficiencia}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{../resources/Eficiencia.png}
+    \caption{Eficiencia de las implementaciones paralelas. OpenMP utiliza 32~núcleos; MPI e Híbrido utilizan 128~núcleos.}
+    \label{fig:eficiencia}
+\end{figure}
+
+La eficiencia, definida como el speedup dividido por la cantidad de unidades de procesamiento utilizadas (Ec.~\ref{eq:eficiencia}), mide qué tan bien se aprovecha cada recurso computacional asignado:
+
+\begin{equation}
+\label{eq:eficiencia}
+E = \frac{S}{p}
+\end{equation}
+
+\noindent donde $S$ es el speedup y $p$ es la cantidad de núcleos o procesos empleados (32 para OpenMP, 128 para MPI e Híbrido).
+
+Los resultados revelan una diferencia abismal en el aprovechamiento de los recursos. OpenMP, con 32~núcleos, alcanza eficiencias entre $0.211$ y $0.360$, lo que significa que entre el 21\% y el 36\% de la capacidad teórica de cómputo se traduce en aceleración real. Esta es una cifra razonable para un problema de procesamiento de imágenes que involucra accesos a memoria intensivos.
+
+En marcado contraste, MPI e Híbrido, al utilizar 128~núcleos, presentan eficiencias extremadamente bajas: entre $0.005$ y $0.017$ para MPI ($0.5\%$--$1.7\%$ de aprovechamiento) y entre $0.008$ y $0.017$ para Híbrido ($0.8\%$--$1.7\%$ de aprovechamiento). Estas cifras indican que la gran mayoría de los 128~núcleos asignados pasan una fracción dominante de su tiempo esperando comunicaciones de red, sincronizaciones de barrera o intercambios de halos, en lugar de realizar cómputo útil.
+
+Este resultado pone en perspectiva un principio fundamental de la computación paralela: \textbf{agregar más procesadores no siempre se traduce en mayor rendimiento}. El costo de coordinación crece con la cantidad de procesos, y existe un punto de inflexión a partir del cual agregar más recursos degrada la eficiencia global. Para este problema en particular, la configuración de 32~núcleos con memoria compartida (OpenMP) se posiciona como la opción más eficiente, maximizando la relación entre aceleración obtenida y recursos consumidos.

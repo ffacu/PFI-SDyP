@@ -1,0 +1,243 @@
+\chapter{Diseño e Implementación de los Algoritmos}
+
+En este capítulo se detalla el proceso de ingeniería de software llevado a cabo para construir el pipeline de procesamiento de imágenes tipo \textit{Cartoon}. Como cimiento tecnológico para todas las implementaciones, se utilizó el lenguaje C por su cercanía al hardware y control explícito de la memoria, apoyado por la librería \texttt{stb\_image} para la decodificación y codificación eficiente de las imágenes.
+
+La evolución del sistema se abordó de manera incremental. En primer lugar, se desarrolló una solución algorítmica puramente secuencial para validar la corrección de los filtros espaciales y establecer una línea base de tiempos. A partir de este núcleo validado, el código fue refactorizado y adaptado a tres paradigmas paralelos distintos: memoria compartida (OpenMP), memoria distribuida (MPI) y una aproximación híbrida (MPI + OpenMP). A continuación, se exponen las decisiones de diseño crítico, las estrategias de división de datos y los mecanismos de sincronización adoptados en cada una de estas iteraciones.
+
+
+%--------------------------------------------------------------------
+\section{El algoritmo secuencial}
+
+La versión secuencial constituye el punto de partida del proyecto y cumple un doble propósito: por un lado, sirve como referencia funcional sobre la cual se validan los resultados de las versiones paralelas (asegurando que produzcan exactamente la misma imagen de salida); y por otro, es la base sobre la cual se calculan las métricas de speedup y eficiencia de las demás implementaciones.
+
+\subsection{Gestión de Memoria en un Arreglo Unidimensional}
+
+Una de las primeras decisiones de diseño fue la representación interna de la imagen. En lugar de modelarla como una matriz bidimensional (un arreglo de arreglos), se optó por aplanar la imagen en un único arreglo unidimensional y contiguo en memoria, de tamaño $\mathit{width} \times \mathit{height} \times \mathit{channels}$. Esta decisión no es meramente estética: al utilizar la función \texttt{stb\_image} para cargar la imagen, ésta ya entrega los datos en este formato, y mantenerlo así evita copias innecesarias y maximiza la localidad espacial. Cuando el procesador necesita leer un píxel, en realidad trae consigo a la memoria caché todo un bloque contiguo de píxeles vecinos, lo que reduce drásticamente la cantidad de accesos a la memoria RAM principal.
+
+Para acceder a un píxel ubicado en la coordenada $(x, y)$ de la imagen, se calcula su posición dentro del arreglo unidimensional mediante la fórmula:
+
+\begin{equation}
+\label{eq:idx}
+idx = y \times \mathit{width} + x
+\end{equation}
+
+A este índice base hay que multiplicarlo (o sumarle el desplazamiento correspondiente) según la cantidad de canales de color, dado que cada píxel ocupa varias posiciones consecutivas en el arreglo (3~posiciones para imágenes RGB). Este cálculo de índice es la operación más repetida de todo el programa, ya que se ejecuta dentro de cada bucle de procesamiento de la imagen, y por eso se mantuvo lo más simple y directo posible, evitando operaciones costosas dentro de los bucles internos.
+
+
+\subsection{Flujo del Pipeline de Procesamiento}
+
+El programa secuencial respeta un orden estricto de ejecución de los distintos filtros, ya que cada etapa depende del resultado de la anterior y alterar este orden produce resultados visualmente incorrectos. El pipeline implementado sigue la siguiente secuencia:
+
+\begin{enumerate}
+    \item \textbf{Conversión a Escala de Grises:} A partir de la imagen original a color, se genera una copia en escala de grises utilizando la fórmula de luminancia ponderada, ya que esta es la que mejor representa la percepción de brillo del ojo humano:
+    \begin{equation}
+    \label{eq:luminancia}
+    L = 0.299 \cdot R + 0.587 \cdot G + 0.114 \cdot B
+    \end{equation}
+    
+    \item \textbf{Borroneado (Box Blur):} Sobre la imagen en escala de grises se aplica un filtro espacial de convolución, de tamaño configurable $3 \times 3$ o $5 \times 5$, que suaviza la imagen eliminando ruido de alta frecuencia. Este paso es indispensable antes de detectar bordes, ya que sin él el detector confundiría el ruido propio de la fotografía con contornos reales.
+    
+    \item \textbf{Detección de Bordes (Sobel):} Sobre la imagen ya borroneada se aplica el filtro de Sobel, que aproxima el gradiente de intensidad utilizando dos kernels (uno horizontal y otro vertical) y obtiene la magnitud del borde mediante la suma de los valores absolutos ($|G_x| + |G_y|$), evitando así el cálculo costoso de raíces cuadradas. Los kernels de Sobel estándar utilizados son:
+    \begin{equation}
+    \label{eq:sobel_gx}
+    G_x = \begin{bmatrix} -1 & 0 & 1 \\ -2 & 0 & 2 \\ -1 & 0 & 1 \end{bmatrix}
+    \qquad
+    G_y = \begin{bmatrix} -1 & -2 & -1 \\ 0 & 0 & 0 \\ 1 & 2 & 1 \end{bmatrix}
+    \end{equation}
+    Luego de obtener la magnitud, se aplica un umbral (\textit{threshold}) para decidir si el píxel corresponde a un borde (negro) o no (blanco/transparente).
+    
+    \item \textbf{Posterizado:} Sobre la imagen original a color (no sobre la versión gris ni borroneada) se aplica el posterizado mediante una tabla de búsqueda (LUT), reduciendo la cantidad de tonos por canal según el parámetro elegido por el usuario.
+    
+    \item \textbf{Fusión Final:} Por último, se combinan los resultados de las dos rutas anteriores. Se toma la imagen posterizada a color (que conserva los detalles cromáticos de la foto original) y se le ``estampan'' encima los píxeles negros detectados por el filtro de Sobel, generando así el efecto final de cartoon, con colores planos y contornos marcados.
+\end{enumerate}
+
+Este orden no es arbitrario: si se posteriza antes de calcular los bordes, o si se detectan bordes sobre la imagen original sin borronear, el resultado final perdería calidad o directamente sería incorrecto.
+
+
+\subsection{Aislamiento de la Medición de Tiempos}
+
+Para poder obtener métricas confiables de rendimiento, fue fundamental que la medición de tiempo se concentrara únicamente en el bloque de cálculo puro del pipeline, es decir, en la ejecución de los filtros descritos anteriormente. Para esto se utilizó la estructura \texttt{timeval} junto con la función \texttt{gettimeofday()}, tomando una marca de tiempo justo antes de comenzar la ejecución de los filtros y otra justo al finalizar, calculando luego la diferencia entre ambas.
+
+Es importante destacar que todas las operaciones de Entrada/Salida (I/O), como la lectura de la imagen desde el disco mediante \texttt{stb\_image} y la escritura del resultado final, quedaron deliberadamente fuera de este bloque cronometrado. Esto se debe a que estas operaciones dependen fuertemente de factores externos al algoritmo en sí (velocidad del disco, sistema de archivos, buffers del SO) y su inclusión dentro de la medición introduciría ruido que distorsionaría las comparaciones de rendimiento entre la versión secuencial y las versiones paralelas. De esta manera, el tiempo medido refleja exclusivamente el costo computacional de los algoritmos de procesamiento de imágenes, que es lo que realmente nos interesa comparar.
+
+
+%--------------------------------------------------------------------
+\section{Paralelización en memoria compartida (OpenMP)}
+
+Esta etapa consistió en paralelizar el código secuencial utilizando OpenMP, aprovechando que todos los núcleos de un mismo nodo comparten el mismo espacio de direcciones de memoria. OpenMP utiliza un modelo de ejecución \textit{fork-join}: el programa corre de manera secuencial hasta que encuentra una región paralela, momento en el cual el hilo principal genera un equipo de hilos de trabajo que ejecutan el código en simultáneo, para luego volver a unirse (\textit{join}) al finalizar dicha región.
+
+
+\subsection{Minimalismo Invasivo}
+
+Uno de los aspectos más destacables de esta etapa fue lo poco que tuvo que modificarse el código original para obtener paralelismo. Dado que el procesamiento de cada píxel es una operación independiente del resultado de los píxeles vecinos recién calculados (no existen dependencias de datos entre iteraciones), fue posible insertar directivas \texttt{\#pragma omp parallel for} directamente sobre los bucles más externos de cada función de filtrado (los que recorren la altura de la imagen), sin tener que reescribir ni una sola línea de la lógica matemática de los filtros. Esto permitió mantener una única base de código ``conceptual'' entre la versión secuencial y la paralela, reduciendo enormemente el riesgo de introducir errores nuevos durante la paralelización.
+
+El siguiente fragmento de código ilustra la paralelización del filtro de borroneado, donde basta con añadir una directiva OpenMP sobre el bucle externo para distribuir las filas entre los hilos disponibles:
+
+\begin{lstlisting}[language=C, caption={Paralelización del filtro Box Blur con OpenMP}, label=list:blur_omp]
+void apply_blur(unsigned char *img_in, unsigned char *img_out,
+                int width, int height, int filter_size) {
+    int offset = filter_size / 2;
+    int num_elements = filter_size * filter_size;
+
+    #pragma omp parallel for schedule(static) // Directiva OpenMP
+    for (int i = 0; i < width * height; i++) {
+        img_out[i] = 0;
+    }
+
+    #pragma omp parallel for schedule(static) // Directiva OpenMP
+    for (int y = offset; y < height - offset; y++) {
+        for (int x = offset; x < width - offset; x++) {
+            int sum = 0;
+            for (int ky = -offset; ky <= offset; ky++) {
+                for (int kx = -offset; kx <= offset; kx++) {
+                    int idx = (y + ky) * width + (x + kx);
+                    sum += img_in[idx];
+                }
+            }
+            int final_idx = y * width + x;
+            img_out[final_idx] = (unsigned char)(sum / num_elements);
+        }
+    }
+}
+\end{lstlisting}
+
+
+\subsection{Planificación Estática}
+
+Al momento de elegir la política de planificación del bucle paralelo, se optó por \texttt{schedule(static)} en lugar de las alternativas dinámicas (\texttt{dynamic} o \texttt{guided}). Esta decisión se basa en la naturaleza misma del problema: el procesamiento de una imagen es un caso de carga de trabajo completamente predecible y uniforme, ya que el costo computacional de aplicar un filtro a un píxel es idéntico para cualquier píxel de la imagen (no hay píxeles ``más difíciles'' que otros). Bajo estas condiciones, la planificación estática divide el espacio total de iteraciones en bloques grandes y contiguos, asignándolos de manera fija a cada hilo desde el inicio.
+
+Esto trae dos beneficios concretos. Primero, se elimina por completo el \textit{overhead} de tener que consultar al planificador en tiempo de ejecución para repartir nuevas tandas de trabajo, como ocurriría con una planificación dinámica, lo cual sería un costo innecesario dado que ningún hilo terminará significativamente antes que otro. Segundo, al asignarle a cada hilo un bloque grande y contiguo de filas, se respeta la localidad espacial de la memoria caché, favoreciendo los mecanismos de \textit{prefetching} del hardware. Como ventaja adicional, al estar los bloques de cada hilo separados por una gran cantidad de memoria, se evita por diseño el problema de \textit{false sharing} (donde distintos hilos escriben en variables que comparten la misma línea de caché), por lo que no fue necesario recurrir a mecanismos de sincronización costosos como \texttt{\#pragma omp critical} dentro de los bucles de procesamiento.
+
+
+\subsection{Prevención de Condiciones de Carrera}
+
+Si bien la lectura de la imagen fuente y la escritura sobre la imagen de destino se realizan sobre arreglos compartidos por todos los hilos, existen ciertas variables auxiliares que sí representan un riesgo de condición de carrera si se manejan incorrectamente. El ejemplo más claro es el cálculo del filtro de Sobel, donde para cada píxel se necesitan acumular los resultados parciales de la convolución horizontal y vertical en variables como \texttt{sumX} y \texttt{sumY}.
+
+La solución adoptada fue declarar estas variables acumuladoras dentro del cuerpo del bucle paralelo, es decir, en su ámbito local. De esta forma, cada hilo obtiene su propia copia privada de \texttt{sumX} y \texttt{sumY} en cada iteración, evitando que distintos hilos lean o escriban sobre la misma variable acumuladora al mismo tiempo. Esta privatización por hilo es automática gracias al alcance (\textit{scope}) de las variables en C, y no requirió el uso explícito de cláusulas como \texttt{private()} ni de directivas de sincronización adicionales, manteniendo el código simple y correcto.
+
+
+\subsection{Optimización de Memoria mediante First-Touch (NUMA)}
+
+Otra decisión importante de diseño fue la paralelización de los bucles de inicialización de los arreglos de salida. En la implementación original, antes de ejecutar la lógica de cada filtro, se recorre el arreglo de salida (\texttt{img\_out}) inicializando todas sus posiciones en cero (\texttt{img\_out[i] = 0}). Esta inicialización, al igual que el cálculo principal, también fue envuelta dentro de una región paralela con \texttt{\#pragma omp parallel for}.
+
+La razón detrás de esto tiene que ver con la política de gestión de memoria del SO en arquitecturas con múltiples sockets de CPU (NUMA). En estos sistemas, las páginas de memoria física no quedan asignadas a un nodo NUMA en particular en el momento del \texttt{malloc}, sino recién en el momento del primer acceso efectivo a esa memoria (política conocida como \textit{first-touch}). Si la inicialización en cero se hiciera de forma secuencial (solo por el hilo principal), todas las páginas de memoria del arreglo quedarían asignadas físicamente al nodo NUMA donde corre dicho hilo. Luego, cuando los demás hilos de trabajo (ubicados en otros núcleos o sockets) intenten escribir sus resultados durante el cálculo pesado del filtro, tendrían que acceder a memoria física ubicada en un nodo NUMA remoto, lo que introduce una penalización de latencia.
+
+Al paralelizar también el bucle de inicialización, cada hilo realiza el ``primer toque'' sobre el bloque de memoria que luego le corresponderá procesar, forzando al SO a repartir las páginas físicas de memoria entre los distintos nodos NUMA de manera alineada con la distribución del cómputo. Si bien esta optimización no afecta la corrección del resultado (el programa funciona igual sin ella), sí resulta relevante para que las curvas de speedup y eficiencia escalen correctamente al ejecutarse en los nodos multi-socket del clúster.
+
+
+\subsection{LUT Secuencial}
+
+Por último, cabe justificar por qué la función \texttt{generate\_lut}, encargada de precalcular la tabla de búsqueda utilizada para el posterizado, se mantuvo sin paralelizar. Esta función recorre únicamente las 256~posiciones posibles de un canal de color (rango de 0 a 255), calculando una sola vez el valor posterizado correspondiente a cada nivel de intensidad.
+
+\begin{lstlisting}[language=C, caption={Generación de la LUT para posterizado}, label=list:generate_lut]
+void generate_lut(unsigned char lut[256], int levels) {
+    if (levels < 2) levels = 2;
+    int step = 256 / levels;
+    for (int i = 0; i < 256; i++) {
+        int bucket = i / step;
+        if (bucket >= levels) bucket = levels - 1;
+        lut[i] = (unsigned char)(bucket * (255.0 / (levels - 1)));
+    }
+}
+\end{lstlisting}
+
+Dado que crear un equipo de hilos en OpenMP no es una operación gratuita (implica cierto \textit{overhead} de sincronización al iniciar y finalizar la región paralela), paralelizar un bucle de apenas 256~iteraciones resultaría contraproducente: el costo de administrar los hilos superaría ampliamente el tiempo que se ahorraría en el cálculo en sí, que de por sí es trivial. Por este motivo, se decidió dejar esta función ejecutándose de forma puramente secuencial, reservando el paralelismo para las operaciones que realmente representan un costo computacional significativo, como son los filtros aplicados sobre los millones de píxeles de la imagen.
+
+
+%--------------------------------------------------------------------
+\section{Paralelización en memoria distribuida (MPI)}
+
+En esta etapa el foco estuvo en extender el procesamiento más allá de los límites de un solo nodo, distribuyendo la carga de trabajo entre múltiples procesos independientes mediante MPI. A diferencia de OpenMP, en este modelo cada proceso (\textit{rank}) cuenta con su propio espacio de memoria privado, por lo que cualquier dato que un proceso necesite y no posea localmente debe ser explícitamente enviado y recibido a través de la red.
+
+
+\subsection{Descomposición de Dominio 1D por Filas}
+
+La primera decisión de diseño fue cómo dividir la imagen entre los distintos procesos. Se descartó una descomposición en bloques 2D (dividir la imagen en una grilla de rectángulos), ya que, si bien teóricamente minimiza la relación entre el perímetro y el área de cada subdominio (reduciendo el volumen total de datos de frontera), en la práctica requeriría transmitir columnas de píxeles, las cuales no son contiguas en memoria. Esto obligaría a empaquetar y desempaquetar constantemente datos dispersos, ya sea mediante tipos de datos derivados de MPI o mediante copias manuales, generando un \textit{overhead} de CPU que terminaría anulando cualquier beneficio de la descomposición 2D.
+
+Por este motivo, se optó por una descomposición de dominio unidimensional por filas: cada proceso recibe un bloque contiguo de filas completas de la imagen. Como cada fila ya se encuentra almacenada de manera contigua en el arreglo unidimensional (tal como se explicó en la sección~2.1), el proceso raíz puede repartir estos bloques directamente mediante punteros de memoria, sin necesidad de ningún empaquetado adicional, logrando un reparto de altísimo rendimiento.
+
+Sin embargo, surge un problema práctico: la altura de la imagen rara vez es perfectamente divisible por la cantidad de procesos disponibles. Para resolver esto, el proceso raíz calcula cuántas filas le corresponden a cada proceso mediante una división entera, y además calcula el \textit{remainder} (resto) de dicha división. Este resto se distribuye repartiendo una fila extra a los primeros procesos hasta agotarlo, de modo que la diferencia de carga entre el proceso que más filas recibe y el que menos recibe sea, como máximo, de una sola fila:
+
+\begin{lstlisting}[language=C, caption={Descomposición de dominio 1D con distribución balanceada del resto}, label=list:domain_decomp]
+int base_rows = height / size;
+int remainder = height % size;
+for (int i = 0; i < size; i++) {
+    row_counts[i] = base_rows + (i < remainder ? 1 : 0);
+}
+\end{lstlisting}
+
+Para llevar a cabo esta distribución desigual de manera eficiente, se utilizaron las funciones \texttt{MPI\_Scatterv} y \texttt{MPI\_Gatherv} en lugar de sus contrapartes \texttt{MPI\_Scatter} y \texttt{MPI\_Gather}, que únicamente permiten repartir fragmentos de igual tamaño. Estas funciones reciben como parámetro un arreglo de cantidades, donde cada posición indica cuántos elementos le corresponden a cada proceso, y un arreglo de desplazamientos, que indica desde qué posición del arreglo original comienza el bloque de cada proceso. Gracias a esto, fue posible lograr un reparto exacto y balanceado de la carga, sin desperdiciar ni un solo byte ni dejar procesos ociosos.
+
+
+\subsection{Mecanismo de Halo Exchange (Zonas Fantasma)}
+
+El mayor desafío de esta etapa surge al momento de aplicar los filtros de convolución (borroneado y Sobel) sobre los bordes de cada subdominio. El problema es el siguiente: para calcular el nuevo valor de un píxel ubicado en la primera o última fila del bloque asignado a un proceso, el filtro necesita leer los valores de las filas vecinas, que físicamente se encuentran en la memoria de otro proceso (el que maneja la partición superior o inferior). Como cada proceso sólo tiene acceso a su propia memoria local, esta información no está disponible directamente.
+
+Para resolver este aislamiento, cada proceso reserva, además de las filas que efectivamente le corresponden procesar, una cantidad adicional de filas ``fantasma'' (\textit{halo}) en los extremos superior e inferior de su bloque local. El tamaño de este halo no es fijo, sino que se calcula dinámicamente en función del tamaño del kernel de convolución utilizado, mediante la expresión:
+
+\begin{equation}
+\label{eq:halo_size}
+\mathit{halo\_size} = \left\lfloor \frac{\mathit{filter\_size}}{2} \right\rfloor
+\end{equation}
+
+Es decir, un filtro de $3 \times 3$ requiere un halo de 1~fila de espesor, mientras que un filtro de $5 \times 5$ requiere un halo de 2~filas.
+
+Antes de comenzar el procesamiento propiamente dicho, todos los procesos participan de una fase de comunicación destinada a llenar estas zonas fantasma con las filas reales correspondientes de sus vecinos. Cabe destacar que los procesos en los extremos del dominio (el primero y el último) se comportan de manera distinta a los procesos intermedios: mientras que un proceso intermedio tiene tanto un vecino superior como uno inferior con quienes intercambiar filas, los procesos extremos solo tienen un vecino de un lado, y del otro lado simplemente no existe información que recibir (corresponde al borde real de la imagen completa).
+
+
+\subsection{Comunicación Segura y Prevención de Deadlocks}
+
+Para implementar este intercambio de filas fantasma se diseñó una función modular, \texttt{halo\_exchange}, encargada de encapsular toda la lógica de comunicación entre vecinos. Un enfoque ingenuo para este intercambio sería utilizar pares de llamadas bloqueantes \texttt{MPI\_Send} y \texttt{MPI\_Recv} de manera secuencial; sin embargo, si todos los procesos intentan enviar datos al mismo tiempo sin que ninguno haya publicado aún un buffer de recepción, los buffers internos de la red pueden saturarse, provocando un \textit{deadlock} que detiene la ejecución del programa por completo.
+
+Para evitar este riesgo, la función \texttt{halo\_exchange} se implementó utilizando la primitiva \texttt{MPI\_Sendrecv}, que combina en una sola llamada una operación de envío y una de recepción de forma simultánea, dejando que la propia biblioteca de MPI se encargue internamente de coordinar el intercambio sin riesgo de bloqueo cíclico. El intercambio completo se realiza en dos pasos simétricos: primero un intercambio ``ascendente'', donde cada proceso envía sus filas reales superiores a su vecino de arriba y recibe de él sus filas fantasma superiores; y luego un intercambio ``descendente'', análogo pero en sentido contrario, con el vecino de abajo.
+
+\begin{lstlisting}[language=C, caption={Función de intercambio de halos con \texttt{MPI\_Sendrecv}}, label=list:halo_exchange]
+void halo_exchange(unsigned char *extended_buf, int local_rows,
+                   int width, int halo_size, int ghost_top,
+                   int ghost_bottom, int rank, int size) {
+
+    int up = (rank > 0) ? rank - 1 : MPI_PROC_NULL;
+    int down = (rank < size - 1) ? rank + 1 : MPI_PROC_NULL;
+    int halo_bytes = halo_size * width;
+
+    // Paso 1: intercambio descendente
+    MPI_Sendrecv(
+        extended_buf + (ghost_top + local_rows - halo_size)*width,
+        halo_bytes, MPI_UNSIGNED_CHAR, down, 0,
+        extended_buf + (ghost_top + local_rows)*width,
+        ghost_bottom * width, MPI_UNSIGNED_CHAR, down, 1,
+        MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+    // Paso 2: intercambio ascendente
+    MPI_Sendrecv(
+        extended_buf + ghost_top * width,
+        halo_bytes, MPI_UNSIGNED_CHAR, up, 1,
+        extended_buf,
+        ghost_top * width, MPI_UNSIGNED_CHAR, up, 0,
+        MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+}
+\end{lstlisting}
+
+Finalmente, para evitar tener que escribir lógica condicional especial (\texttt{if/else}) que distinga el comportamiento de los procesos extremos (\textit{rank}~0 y el último \textit{rank}) respecto de los procesos intermedios, se aprovechó el destino virtual \texttt{MPI\_PROC\_NULL} que ofrece MPI. Cuando un proceso extremo no tiene un vecino real hacia un lado, simplemente se configura ese ``vecino'' como \texttt{MPI\_PROC\_NULL}. Al ejecutar un \texttt{MPI\_Sendrecv} dirigido a \texttt{MPI\_PROC\_NULL}, la operación se completa de manera inmediata y exitosa sin realizar ninguna transferencia real de datos (una especie de \textit{no-op}), permitiendo que exactamente el mismo bloque de código de \texttt{halo\_exchange} funcione de manera uniforme para todos los procesos, sin distinguir casos especiales.
+
+
+%--------------------------------------------------------------------
+\section{Arquitectura híbrida (MPI + OpenMP)}
+
+La última versión del proyecto combina los dos modelos de paralelismo desarrollados anteriormente, buscando aprovechar la jerarquía física de un clúster moderno: por un lado, múltiples nodos conectados por una red, y por otro lado, dentro de cada nodo, múltiples núcleos de CPU que comparten memoria. La idea central de esta arquitectura es lanzar un único proceso MPI por nodo (en lugar de uno por núcleo, como ocurriría en una versión MPI pura), y que dicho proceso utilice internamente OpenMP para repartir su porción de trabajo entre todos los núcleos disponibles en su nodo.
+
+
+\subsection{Nivel de Soporte Multi-Hilo}
+
+Al combinar MPI con multithreading dentro de un mismo proceso, surge un riesgo adicional: si varios hilos de OpenMP intentaran invocar funciones de MPI de manera simultánea, el estado interno de la biblioteca de MPI podría corromperse, provocando fallos de segmentación. Para evitar esto, MPI ofrece distintos niveles de soporte de hilos, que se solicitan explícitamente mediante la función \texttt{MPI\_Init\_thread} (en lugar del clásico \texttt{MPI\_Init}).
+
+Para este proyecto se eligió el nivel \texttt{MPI\_THREAD\_FUNNELED}. Bajo esta política, la aplicación puede tener múltiples hilos en ejecución, pero únicamente el hilo principal (el \textit{Master Thread}, que es el que invocó originalmente a \texttt{MPI\_Init\_thread}) tiene permitido realizar llamadas a funciones de MPI. El resto de los hilos de trabajo (los hilos OpenMP \textit{Workers}) quedan restringidos a operar exclusivamente sobre la RAM local del nodo, sin ningún tipo de acceso a la red. Esto evita por completo cualquier posibilidad de congestión o corrupción en las comunicaciones de red, y a su vez evita el costo de rendimiento que implicaría solicitar un nivel de soporte más permisivo (como \texttt{MPI\_THREAD\_MULTIPLE}), el cual requeriría que la biblioteca de MPI mantenga bloqueos internos constantes para proteger su estado.
+
+
+\subsection{Flujo de Trabajo Jerárquico}
+
+La aplicación híbrida orquesta ambos modelos de paralelismo de manera secuencial dentro de cada ``ronda'' de procesamiento, alternando entre comunicación de red y cómputo local. Primero, a nivel de MPI, el proceso raíz divide la imagen completa en bloques de filas (utilizando la misma lógica de \texttt{MPI\_Scatterv} descrita en la sección~2.3) y los distribuye entre los distintos procesos, uno por nodo. Inmediatamente después, todos los procesos participan del intercambio de halos (\textit{halo exchange}) descrito anteriormente, para que cada uno tenga en su memoria local todas las filas (propias y fantasma) que va a necesitar.
+
+Una vez que esta fase de sincronización de red finaliza y la memoria local de cada proceso queda completamente coherente, el \textit{Master Thread} de cada proceso invoca a su equipo de hilos OpenMP mediante las directivas \texttt{\#pragma omp parallel for}, ya implementadas en la versión de memoria compartida. A partir de este punto, todos los núcleos del nodo trabajan en simultáneo sobre la porción de imagen que le fue asignada a ese proceso MPI, aplicando los filtros de borroneado, Sobel y posterizado sobre sus filas correspondientes, sin necesidad de ninguna comunicación adicional con otros nodos durante esta fase de cómputo. Recién al finalizar el procesamiento, el proceso raíz recolecta los resultados de todos los nodos mediante \texttt{MPI\_Gatherv} para ensamblar la imagen final.
+
+De esta manera, la red solo se utiliza para las operaciones estrictamente necesarias (repartir la imagen, intercambiar halos y recolectar resultados), mientras que la gran mayoría del tiempo de cómputo se realiza de forma local, aprovechando al máximo el ancho de banda de memoria compartida dentro de cada nodo.

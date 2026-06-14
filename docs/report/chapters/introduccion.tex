@@ -1,8 +1,17 @@
-\chapter*{Introducción}
-\addcontentsline{toc}{chapter}{Introducción}
+\chapter{Introducción}
 
-%--------------------------------------------------------------------
-\section*{Section 1}
-\addcontentsline{toc}{section}{Section1}
+El presente trabajo práctico integrador tiene como objetivo principal comprender y aplicar la problemática asociada al diseño e implementación de sistemas paralelos eficientes. Como caso de estudio empírico, se plantea el desarrollo de una aplicación de procesamiento de imágenes capaz de generar un efecto de \textit{Cartoon} a partir de una fotografía original. Para lograr este efecto visual sobre una matriz de píxeles, se debe construir un pipeline de transformaciones espaciales que incluye: la conversión de la imagen a escala de grises, la aplicación de filtros de convolución matemática para suavizado y detección de bordes, la reducción de la paleta de colores mediante posterización, y la posterior fusión de estos elementos.
 
-\noindent
+Con el fin de analizar cómo se adaptan estos algoritmos a diferentes arquitecturas de hardware, el proyecto propone resolver el problema mediante cuatro enfoques de programación distintos:
+
+\begin{enumerate}
+    \item \textbf{Modelo Secuencial:} Implementación base ejecutada en un único hilo de control, la cual sirve como punto de referencia algorítmico y métrico.
+    
+    \item \textbf{Modelo de Memoria Distribuida (MPI):} Versión paralela donde la carga de trabajo (el dominio de la imagen) se divide entre múltiples procesos independientes que no comparten memoria y deben coordinarse mediante el paso explícito de mensajes a través de la red.
+    
+    \item \textbf{Modelo de Memoria Compartida (OpenMP):} Implementación orientada a explotar arquitecturas multinúcleo dentro de un mismo nodo computacional, utilizando múltiples hilos de ejecución que comparten el mismo espacio de direccionamiento lógico.
+    
+    \item \textbf{Modelo Paralelo Híbrido:} Arquitectura avanzada que integra ambos paradigmas, utilizando MPI para la comunicación y distribución del trabajo a gran escala entre distintos nodos de un clúster, y OpenMP para maximizar el poder de cómputo local dentro de cada nodo.
+\end{enumerate}
+
+Finalmente, se evalúan métricas clave de la computación de alto rendimiento, tales como el \textit{Speedup} y la \textit{Eficiencia}. Las pruebas de benchmarking se realizan sometiendo al sistema a diferentes niveles de estrés computacional, variando la resolución de las imágenes (desde $800 \times 800$ hasta $5000 \times 5000$ píxeles), el tamaño de las matrices de convolución (filtros de $3 \times 3$ y $5 \times 5$) y los rangos de posterizado, con el objetivo de establecer conclusiones fundamentadas sobre la viabilidad y escalabilidad de cada paradigma.
