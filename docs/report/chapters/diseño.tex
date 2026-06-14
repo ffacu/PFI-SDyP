@@ -1,6 +1,6 @@
 \chapter{Diseño e Implementación de los Algoritmos}
 
-En este capítulo se detalla el proceso de ingeniería de software llevado a cabo para construir el pipeline de procesamiento de imágenes tipo \textit{Cartoon}. Como cimiento tecnológico para todas las implementaciones, se utilizó el lenguaje C por su cercanía al hardware y control explícito de la memoria, apoyado por la librería \texttt{stb\_image} para la decodificación y codificación eficiente de las imágenes.
+En este capítulo se detalla el proceso de ingeniería de software llevado a cabo para construir el pipeline de procesamiento de imágenes tipo \textit{Cartoon}. Como cimiento tecnológico para todas las implementaciones, se utilizó el lenguaje C por su cercanía al hardware y control explícito de la memoria, apoyado por la librería \texttt{stb\_image} \cite{stb_image} para la decodificación y codificación eficiente de las imágenes.
 
 La evolución del sistema se abordó de manera incremental. En primer lugar, se desarrolló una solución algorítmica puramente secuencial para validar la corrección de los filtros espaciales y establecer una línea base de tiempos. A partir de este núcleo validado, el código fue refactorizado y adaptado a tres paradigmas paralelos distintos: memoria compartida (OpenMP), memoria distribuida (MPI) y una aproximación híbrida (MPI + OpenMP). A continuación, se exponen las decisiones de diseño crítico, las estrategias de división de datos y los mecanismos de sincronización adoptados en cada una de estas iteraciones.
 
@@ -29,7 +29,7 @@ A este índice base hay que multiplicarlo (o sumarle el desplazamiento correspon
 El programa secuencial respeta un orden estricto de ejecución de los distintos filtros, ya que cada etapa depende del resultado de la anterior y alterar este orden produce resultados visualmente incorrectos. El pipeline implementado sigue la siguiente secuencia:
 
 \begin{enumerate}
-    \item \textbf{Conversión a Escala de Grises:} A partir de la imagen original a color, se genera una copia en escala de grises utilizando la fórmula de luminancia ponderada, ya que esta es la que mejor representa la percepción de brillo del ojo humano:
+    \item \textbf{Conversión a Escala de Grises:} A partir de la imagen original a color, se genera una copia en escala de grises utilizando la fórmula de luminancia ponderada ITU-R BT.601 \cite{gonzalez2018digital}, ya que esta es la que mejor representa la percepción de brillo del ojo humano:
     \begin{equation}
     \label{eq:luminancia}
     L = 0.299 \cdot R + 0.587 \cdot G + 0.114 \cdot B
@@ -37,7 +37,7 @@ El programa secuencial respeta un orden estricto de ejecución de los distintos 
     
     \item \textbf{Borroneado (Box Blur):} Sobre la imagen en escala de grises se aplica un filtro espacial de convolución, de tamaño configurable $3 \times 3$ o $5 \times 5$, que suaviza la imagen eliminando ruido de alta frecuencia. Este paso es indispensable antes de detectar bordes, ya que sin él el detector confundiría el ruido propio de la fotografía con contornos reales.
     
-    \item \textbf{Detección de Bordes (Sobel):} Sobre la imagen ya borroneada se aplica el filtro de Sobel, que aproxima el gradiente de intensidad utilizando dos kernels (uno horizontal y otro vertical) y obtiene la magnitud del borde mediante la suma de los valores absolutos ($|G_x| + |G_y|$), evitando así el cálculo costoso de raíces cuadradas. Los kernels de Sobel estándar utilizados son:
+    \item \textbf{Detección de Bordes (Sobel):} Sobre la imagen ya borroneada se aplica el filtro de Sobel \cite{sobel1968operator}, que aproxima el gradiente de intensidad utilizando dos kernels (uno horizontal y otro vertical) y obtiene la magnitud del borde mediante la suma de los valores absolutos ($|G_x| + |G_y|$), evitando así el cálculo costoso de raíces cuadradas. Los kernels de Sobel estándar utilizados son:
     \begin{equation}
     \label{eq:sobel_gx}
     G_x = \begin{bmatrix} -1 & 0 & 1 \\ -2 & 0 & 2 \\ -1 & 0 & 1 \end{bmatrix}
@@ -64,7 +64,7 @@ Es importante destacar que todas las operaciones de Entrada/Salida (I/O), como l
 %--------------------------------------------------------------------
 \section{Paralelización en memoria compartida (OpenMP)}
 
-Esta etapa consistió en paralelizar el código secuencial utilizando OpenMP, aprovechando que todos los núcleos de un mismo nodo comparten el mismo espacio de direcciones de memoria. OpenMP utiliza un modelo de ejecución \textit{fork-join}: el programa corre de manera secuencial hasta que encuentra una región paralela, momento en el cual el hilo principal genera un equipo de hilos de trabajo que ejecutan el código en simultáneo, para luego volver a unirse (\textit{join}) al finalizar dicha región.
+Esta etapa consistió en paralelizar el código secuencial utilizando la especificación OpenMP \cite{dagum1998openmp}, aprovechando que todos los núcleos de un mismo nodo comparten el mismo espacio de direcciones de memoria. OpenMP utiliza un modelo de ejecución \textit{fork-join}: el programa corre de manera secuencial hasta que encuentra una región paralela, momento en el cual el hilo principal genera un equipo de hilos de trabajo que ejecutan el código en simultáneo, para luego volver a unirse (\textit{join}) al finalizar dicha región.
 
 
 \subsection{Minimalismo Invasivo}
@@ -147,7 +147,7 @@ Dado que crear un equipo de hilos en OpenMP no es una operación gratuita (impli
 %--------------------------------------------------------------------
 \section{Paralelización en memoria distribuida (MPI)}
 
-En esta etapa el foco estuvo en extender el procesamiento más allá de los límites de un solo nodo, distribuyendo la carga de trabajo entre múltiples procesos independientes mediante MPI. A diferencia de OpenMP, en este modelo cada proceso (\textit{rank}) cuenta con su propio espacio de memoria privado, por lo que cualquier dato que un proceso necesite y no posea localmente debe ser explícitamente enviado y recibido a través de la red.
+En esta etapa el foco estuvo en extender el procesamiento más allá de los límites de un solo nodo, distribuyendo la carga de trabajo entre múltiples procesos independientes mediante el estándar MPI \cite{gropp1999using}. A diferencia de OpenMP, en este modelo cada proceso (\textit{rank}) cuenta con su propio espacio de memoria privado, por lo que cualquier dato que un proceso necesite y no posea localmente debe ser explícitamente enviado y recibido a través de la red.
 
 
 \subsection{Descomposición de Dominio 1D por Filas}
