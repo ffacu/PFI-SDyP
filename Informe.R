@@ -388,3 +388,94 @@ ggplot(df_eficiencia, aes(x = Contexto, y = Eficiencia, color = Programa, group 
   theme(legend.position = "bottom",
         axis.text.x = element_text(angle = 45, hjust = 1),
         panel.grid.minor = element_line(linetype = "dotted"))
+
+
+# ===================================================================
+# ANÁLISIS DE ESCALABILIDAD DE HILOS
+# Imagen: 5000x5000 | Filtro: 5x5 | Niveles: 9
+# Se varía la cantidad de hilos: 1, 2, 4, 8, 16, 32
+# ===================================================================
+
+df_threads <- read_csv("/home/franco/metricas_threads.csv")
+
+# Transformar a formato largo
+df_threads_largo <- df_threads %>%
+  pivot_longer(cols = starts_with("Iter"), 
+               names_to = "Iteracion", 
+               values_to = "Tiempo") %>%
+  mutate(Iteracion_num = as.numeric(gsub("Iter", "", Iteracion)))
+
+# Obtener el mejor (mínimo) tiempo por programa y cantidad de hilos
+df_threads_mejor <- df_threads_largo %>%
+  group_by(Programa, Threads) %>%
+  summarise(
+    Mejor_Tiempo = min(Tiempo, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Calcular Speedup relativo: S(p) = T(1 hilo) / T(p hilos)
+# Cada programa usa su propio T(1) como referencia
+df_threads_speedup <- df_threads_mejor %>%
+  group_by(Programa) %>%
+  mutate(
+    Tiempo_Base = Mejor_Tiempo[Threads == 1],
+    Speedup = Tiempo_Base / Mejor_Tiempo
+  ) %>%
+  ungroup()
+
+# Línea de speedup ideal (S = p)
+df_ideal <- data.frame(Threads = c(1, 32), Speedup = c(1, 32))
+
+
+# --- Gráfico de Speedup vs Hilos ---
+ggplot(df_threads_speedup, aes(x = Threads, y = Speedup, color = Programa, group = Programa)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 3) +
+  geom_line(data = df_ideal, aes(x = Threads, y = Speedup),
+            linetype = "dashed", color = "gray50", linewidth = 0.8,
+            inherit.aes = FALSE) +
+  annotate("text", x = 28, y = 30, label = "Speedup ideal (S = p)",
+           color = "gray40", size = 3.5, fontface = "italic") +
+  geom_text(aes(label = round(Speedup, 2)), 
+            vjust = -0.8, 
+            size = 3.5,
+            show.legend = FALSE) +
+  scale_x_continuous(breaks = c(1, 2, 4, 8, 16, 32)) +
+  scale_y_continuous(breaks = seq(0, 32, by = 2)) +
+  scale_color_manual(values = c("OpenMP" = "blue", "Hibrido" = "purple")) +
+  labs(title = "Speedup según cantidad de hilos",
+       subtitle = "Imagen: 5000x5000 | Filtro: 5x5 | 9 niveles | Referencia: T(1 hilo)",
+       x = "Cantidad de hilos",
+       y = "Speedup",
+       color = "Programa") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        panel.grid.minor = element_line(linetype = "dotted"))
+
+
+# --- Gráfico de Eficiencia vs Hilos ---
+# E(p) = S(p) / p, donde p es la cantidad de hilos
+df_threads_eficiencia <- df_threads_speedup %>%
+  mutate(Eficiencia = Speedup / Threads)
+
+ggplot(df_threads_eficiencia, aes(x = Threads, y = Eficiencia, color = Programa, group = Programa)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "gray50", linewidth = 0.8) +
+  annotate("text", x = 28, y = 1.03, label = "Eficiencia ideal (E = 1)",
+           color = "gray40", size = 3.5, fontface = "italic") +
+  geom_text(aes(label = round(Eficiencia, 3)), 
+            vjust = -0.8, 
+            size = 3.5,
+            show.legend = FALSE) +
+  scale_x_continuous(breaks = c(1, 2, 4, 8, 16, 32)) +
+  scale_y_continuous(breaks = seq(0, 1.1, by = 0.1), limits = c(0, 1.15)) +
+  scale_color_manual(values = c("OpenMP" = "blue", "Hibrido" = "purple")) +
+  labs(title = "Eficiencia según cantidad de hilos",
+       subtitle = "Imagen: 5000x5000 | Filtro: 5x5 | 9 niveles | E = S(p) / p",
+       x = "Cantidad de hilos",
+       y = "Eficiencia",
+       color = "Programa") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        panel.grid.minor = element_line(linetype = "dotted"))
