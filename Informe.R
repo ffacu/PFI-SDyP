@@ -1,8 +1,9 @@
 library(ggplot2)
 library(tidyr)
 library(dplyr)
+library(readr)
 
-df <- read_csv("/home/franco/metricas.csv")
+df <- read_csv("metricas.csv")
 
 
 # --------------------------------
@@ -396,7 +397,7 @@ ggplot(df_eficiencia, aes(x = Contexto, y = Eficiencia, color = Programa, group 
 # Se varía la cantidad de hilos: 1, 2, 4, 8, 16, 32
 # ===================================================================
 
-df_threads <- read_csv("/home/franco/metricas_threads.csv")
+df_threads <- read_csv("metricas_threads.csv")
 
 # Transformar a formato largo
 df_threads_largo <- df_threads %>%

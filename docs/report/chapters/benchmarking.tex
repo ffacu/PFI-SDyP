@@ -2,7 +2,7 @@
 
 Para evaluar de forma rigurosa el rendimiento de las cuatro implementaciones desarrolladas, se diseñó un benchmarking script que somete a cada versión del programa a seis configuraciones distintas de trabajo computacional, combinando tres resoluciones de imagen ($800 \times 800$, $2000 \times 2000$ y $5000 \times 5000$~píxeles) con dos perfiles de filtrado: un \textit{perfil liviano} (filtro de $3 \times 3$ con 3~niveles de posterizado) y un \textit{perfil pesado} (filtro de $5 \times 5$ con 9~niveles de posterizado). Cada configuración se ejecutó durante 10~iteraciones consecutivas para obtener muestras estadísticamente representativas. Las pruebas se realizaron sobre un clúster donde OpenMP utilizó 32~núcleos dentro de un único nodo, mientras que MPI y la versión Híbrida emplearon 128~núcleos distribuidos en 4~nodos ($4\ \mathit{nodos} \times 32\ \mathit{cores}$).
 
-A continuación se presenta el análisis detallado de cada escenario, seguido de una comparación general, las curvas de \textit{Speedup} y las curvas de \textit{Eficiencia}.
+A continuación se presenta el análisis detallado de cada escenario, seguido de una comparación general, las curvas de \textit{Speedup} y \textit{Eficiencia}, y un estudio de escalabilidad en función de la cantidad de hilos.
 
 
 %--------------------------------------------------------------------
@@ -92,7 +92,7 @@ La configuración más exigente del benchmark ($5000 \times 5000$ con kernel de 
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.85\textwidth]{../resources/Comp_General.png}
+    \includegraphics[width=0.9\textwidth]{../resources/Comp_General.png}
     \caption{Comparación general de tiempos --- Mínimo tiempo obtenido por cada implementación en las seis configuraciones de benchmark.}
     \label{fig:comp_general}
 \end{figure}
@@ -113,7 +113,7 @@ La versión Secuencial (línea roja) sirve como referencia superior, con un crec
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.85\textwidth]{../resources/Speedup.png}
+    \includegraphics[width=0.9\textwidth]{../resources/Speedup.png}
     \caption{Speedup de las implementaciones paralelas respecto de la versión secuencial en las seis configuraciones de benchmark. La línea punteada indica $S = 1$ (sin aceleración).}
     \label{fig:speedup}
 \end{figure}
@@ -137,7 +137,7 @@ La versión Híbrida logra speedups moderados pero superiores a MPI en todos los
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=0.85\textwidth]{../resources/Eficiencia.png}
+    \includegraphics[width=0.9\textwidth]{../resources/Eficiencia.png}
     \caption{Eficiencia de las implementaciones paralelas. OpenMP utiliza 32~núcleos; MPI e Híbrido utilizan 128~núcleos.}
     \label{fig:eficiencia}
 \end{figure}
@@ -156,3 +156,44 @@ Los resultados revelan una diferencia abismal en el aprovechamiento de los recur
 En marcado contraste, MPI e Híbrido, al utilizar 128~núcleos, presentan eficiencias extremadamente bajas: entre $0.005$ y $0.017$ para MPI ($0.5\%$--$1.7\%$ de aprovechamiento) y entre $0.008$ y $0.017$ para Híbrido ($0.8\%$--$1.7\%$ de aprovechamiento). Estas cifras indican que la gran mayoría de los 128~núcleos asignados pasan una fracción dominante de su tiempo esperando comunicaciones de red, sincronizaciones de barrera o intercambios de halos, en lugar de realizar cómputo útil.
 
 Este resultado pone en perspectiva un principio fundamental de la computación paralela: \textbf{agregar más procesadores no siempre se traduce en mayor rendimiento}. El costo de coordinación crece con la cantidad de procesos, y existe un punto de inflexión a partir del cual agregar más recursos degrada la eficiencia global. Para este problema en particular, la configuración de 32~núcleos con memoria compartida (OpenMP) se posiciona como la opción más eficiente, maximizando la relación entre aceleración obtenida y recursos consumidos.
+
+
+%--------------------------------------------------------------------
+\section{Escalabilidad según Cantidad de Hilos}
+
+Los análisis previos evaluaron el rendimiento de cada paradigma con una cantidad fija de unidades de procesamiento (32~hilos para OpenMP, 128~núcleos para MPI e Híbrido). Sin embargo, aún nos queda por comprender cómo escala cada implementación al incrementar gradualmente los recursos disponibles. Para ello, se diseñó un script el cuál varia la cantidad de hilos OpenMP utilizando la secuencia $\{1, 2, 4, 8, 16, 32\}$ (potencias de a dos), manteniendo fija la configuración computacionalmente más exigente del benchmark: imagen de $5000 \times 5000$~píxeles con filtro de $5 \times 5$ y 9~niveles de posterizado. Esta elección no es arbitraria: al maximizar el volumen de cómputo por píxel, se asegura que la fracción paralela del algoritmo domine sobre cualquier overhead de gestión de hilos, permitiendo observar con mayor claridad la tendencia de escalabilidad.
+
+Para la versión OpenMP, las 10~iteraciones de cada configuración se ejecutaron sobre un único nodo del clúster, variando exclusivamente el parámetro \texttt{-t} que controla la cantidad de hilos. Para la versión Híbrida, se mantuvieron fijos los 4~procesos MPI (uno por nodo físico) y se varió la cantidad de hilos OpenMP internos de cada proceso, con el objetivo de aislar el efecto del paralelismo local respecto de la comunicación de red. En ambos casos, el speedup se calculó de forma relativa a la ejecución con un único hilo del mismo programa ($S(p) = T(1) / T(p)$), lo que permite medir la ganancia neta atribuible exclusivamente al aumento de hilos, sin que la comparación se vea distorsionada por la latencia de red inherente al modelo híbrido.
+
+
+\subsection{Speedup según cantidad de hilos}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../resources/Speedup_threads.png}
+    \caption{Speedup en función de la cantidad de hilos para OpenMP e Híbrido. La línea punteada representa el speedup ideal ($S = p$). Configuración: imagen $5000 \times 5000$, filtro $5 \times 5$, 9~niveles.}
+    \label{fig:speedup_threads}
+\end{figure}
+
+La curva de OpenMP (línea azul) exhibe un crecimiento sostenido y consistente a lo largo de todo el rango evaluado. Con 2~hilos se obtiene un speedup de $1{.}49$, lo que indica que prácticamente la totalidad del trabajo se distribuye efectivamente entre ambos hilos, con una pérdida mínima por overhead de creación del equipo de hilos. Al pasar a 4~hilos el speedup asciende a $2{.}51$, manteniendo una progresión cercana a la linealidad. El salto más significativo se produce al escalar a 8~hilos ($S = 4{.}56$), punto en el cual la curva comienza a separarse visiblemente de la línea de speedup ideal ($S = p$), evidenciando que factores como la contención por acceso a memoria compartida y la saturación del ancho de banda de los buses de caché empiezan a limitar la aceleración. Con 16~hilos se alcanza un speedup de $8{.}23$, y con los 32~núcleos disponibles se consolida en $11{.}28$, un valor coherente con los $10{.}75$ obtenidos en las pruebas comparativas entre paradigmas de la sección anterior.
+
+La brecha entre la curva real y el speedup ideal ($S = 32$ para 32~hilos) cuantifica el impacto acumulado de la fracción secuencial del algoritmo, la contención por acceso simultáneo a la jerarquía de memoria y el overhead propio de las barreras implícitas de sincronización que OpenMP inserta al finalizar cada región paralela (\texttt{implicit barrier} al cierre de cada \texttt{\#pragma omp parallel for}).
+
+En marcado contraste, la versión Híbrida (línea púrpura) presenta un comportamiento radicalmente distinto. Si bien con 2~hilos por nodo logra un speedup de $1{.}18$ respecto de su propia ejecución con 1~hilo, la curva se aplana casi por completo a partir de 4~hilos, estabilizándose en un rango estrecho entre $1{.}44$ y $1{.}51$ para todas las configuraciones de 4 a 32~hilos. Este estancamiento se explica por el hecho de que el cuello de botella dominante en la versión Híbrida no es el cómputo local (que sí se beneficiaría de más hilos), sino la latencia de la comunicación de red entre los 4~nodos MPI. Dado que las operaciones de \texttt{MPI\_Scatterv}, intercambio de halos y \texttt{MPI\_Gatherv} se ejecutan de forma secuencial por el hilo maestro (restricción impuesta por el nivel \texttt{MPI\_THREAD\_FUNNELED}), agregar más hilos de cómputo no reduce el tiempo invertido en estas fases de sincronización, que constituyen una fracción fija e irreductible del tiempo total de ejecución. Este comportamiento es una manifestación directa de la Ley de Amdahl: cuando la fracción secuencial (en este caso, la comunicación de red) es significativa, el speedup queda acotado independientemente de cuántos procesadores se agreguen a la fracción paralela.
+
+
+\subsection{Eficiencia según cantidad de hilos}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{../resources/Eficiencia_threads.png}
+    \caption{Eficiencia en función de la cantidad de hilos para OpenMP e Híbrido. La línea punteada representa la eficiencia ideal ($E = 1$). Configuración: imagen $5000 \times 5000$, filtro $5 \times 5$, 9~niveles.}
+    \label{fig:eficiencia_threads}
+\end{figure}
+
+La eficiencia por hilo, calculada como $E(p) = S(p) / p$ donde $p$ es la cantidad de hilos utilizada, revela con precisión qué fracción del poder de cómputo agregado se traduce efectivamente en aceleración.
+
+OpenMP parte de una eficiencia perfecta de $1{.}0$ con un único hilo (caso trivial donde $S(1)/1 = 1$) y exhibe una degradación monótona pero controlada a medida que se incrementa la cantidad de hilos. Con 2~hilos la eficiencia se mantiene en $0{.}745$ (el $74{.}5\%$ del recurso agregado se aprovecha), desciende a $0{.}626$ con 4~hilos, y continúa cayendo de manera gradual hasta estabilizarse en $0{.}353$ con 32~hilos. La forma de esta curva de decaimiento ---logarítmica inversa--- es característica de algoritmos con alta regularidad computacional y baja fracción secuencial: la pérdida de eficiencia se debe principalmente a factores de hardware (saturación del ancho de banda de memoria, coherencia de caché entre núcleos) y no a deficiencias algorítmicas. El hecho de que con 32~hilos aún se conserve un $35.3\%$ de eficiencia confirma que el pipeline de procesamiento de imágenes posee una fracción paralela dominante, y que las decisiones de diseño adoptadas (planificación estática, inicialización paralela para \textit{first-touch}, privatización automática de variables acumuladoras) fueron efectivas para minimizar la contención entre hilos.
+
+La versión Híbrida, en cambio, muestra una caída de eficiencia considerablemente más pronunciada. Desde un valor inicial de $0{.}589$ con 2~hilos, la eficiencia se desploma a $0{.}340$ con 4~hilos y continúa descendiendo hasta alcanzar apenas $0{.}047$ con 32~hilos por nodo (un aprovechamiento de solo el $4{.}7\%$ por hilo). Esta degradación acelerada se explica por la asimetría inherente al modelo híbrido: al agregar más hilos de cómputo, el tiempo de las fases paralelas (filtros de convolución, posterizado, fusión) se reduce proporcionalmente, pero el tiempo de las fases secuenciales de comunicación MPI permanece constante. A medida que el cómputo local se vuelve más rápido, la fracción relativa del tiempo total consumida por la red crece, haciendo que cada hilo adicional aporte una mejora marginal cada vez menor. Expresado en términos de la Ley de Amdahl, si se denota como $f$ la fracción del tiempo total que corresponde a comunicación de red (fracción secuencial irreductible), el speedup máximo alcanzable está acotado por $S_{\max} = 1/f$, independientemente de cuántos hilos se agreguen. La convergencia observada del speedup hacia un techo de $\approx 1{.}51$ sugiere que la comunicación de red consume aproximadamente el $66\%$ del tiempo total de ejecución en la versión Híbrida con esta configuración de 4~nodos, lo cual es consistente con los tiempos absolutos reportados en las secciones anteriores.
+
