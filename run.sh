@@ -100,6 +100,75 @@ done
 
 echo ""
 echo "======================================"
-echo " BENCHMARK FINALIZADO."
+echo " FASE 1 COMPLETADA: Benchmark general"
 echo " Archivo exportado: $ARCHIVO_CSV"
+echo "======================================"
+
+
+# ==========================================
+# FASE 2: ESCALABILIDAD DE HILOS
+# ==========================================
+# Se utiliza la configuración más pesada para maximizar
+# la visibilidad del efecto de escalabilidad:
+#   Imagen: 5000x5000 | Filtro: 5x5 | Niveles: 9
+# Se varía la cantidad de hilos: 1, 2, 4, 8, 16, 32
+
+ARCHIVO_THREADS="metricas_threads.csv"
+IMG_THREADS="img_5000.jpg"
+F_THREADS=5
+P_THREADS=9
+THREADS_LIST=(1 2 4 8 16 32)
+
+echo ""
+echo "============================================================"
+echo " FASE 2: ESCALABILIDAD DE HILOS"
+echo " Imagen: 5000x5000 | Filtro: 5x5 | Niveles: 9"
+echo " Hilos evaluados: ${THREADS_LIST[*]}"
+echo "============================================================"
+
+# Validar que exista la imagen
+if [ ! -f "$IMG_THREADS" ]; then
+    echo "ADVERTENCIA: No se encontró la imagen $IMG_THREADS. Saltando Fase 2."
+else
+
+    echo "Programa,Threads,Iter1,Iter2,Iter3,Iter4,Iter5,Iter6,Iter7,Iter8,Iter9,Iter10" > $ARCHIVO_THREADS
+
+    # ---------------------------------------------------------
+    # OpenMP: varía la cantidad de hilos en un único nodo
+    # ---------------------------------------------------------
+    for T in "${THREADS_LIST[@]}"; do
+        echo -n "   OpenMP ($T hilos)... "
+        FILA_CSV="OpenMP,$T"
+        for ((i=1; i<=ITERACIONES; i++)); do
+            SALIDA=$(mpirun -np 1 --host nodo1 ./bin/omp -i "$IMG_THREADS" -o "out_omp_t.jpg" -f $F_THREADS -p $P_THREADS -t $T)
+            TIEMPO=$(echo "$SALIDA" | grep "Tiempo de procesamiento" | awk '{print $4}')
+            FILA_CSV="$FILA_CSV,$TIEMPO"
+        done
+        echo "$FILA_CSV" >> $ARCHIVO_THREADS
+        echo "[OK]"
+    done
+
+    # ---------------------------------------------------------
+    # Híbrido: 4 procesos MPI fijos (1 por nodo), varía hilos
+    # ---------------------------------------------------------
+    for T in "${THREADS_LIST[@]}"; do
+        echo -n "   Híbrido ($NODO_HIB nodos x $T hilos)... "
+        FILA_CSV="Hibrido,$T"
+        for ((i=1; i<=ITERACIONES; i++)); do
+            SALIDA=$(mpirun --hostfile machinefile -np $NODO_HIB ./bin/hibrido -i "$IMG_THREADS" -o "out_hib_t.jpg" -f $F_THREADS -p $P_THREADS -t $T)
+            TIEMPO=$(echo "$SALIDA" | grep "Tiempo de procesamiento" | awk '{print $4}')
+            FILA_CSV="$FILA_CSV,$TIEMPO"
+        done
+        echo "$FILA_CSV" >> $ARCHIVO_THREADS
+        echo "[OK]"
+    done
+
+fi
+
+echo ""
+echo "======================================"
+echo " TODAS LAS FASES FINALIZADAS."
+echo " Archivos exportados:"
+echo "   - $ARCHIVO_CSV"
+echo "   - $ARCHIVO_THREADS"
 echo "======================================"

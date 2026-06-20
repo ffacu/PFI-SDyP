@@ -1,0 +1,111 @@
+% -------------------------------------------------------------------
+% Document setup
+% -------------------------------------------------------------------
+\documentclass[a4paper,12pt,oneside,spanish]{book}
+\usepackage{babel}
+\usepackage{styles}
+\usepackage{tabularx}
+\usepackage{titlesec}
+\usepackage{float}
+\usepackage{subcaption}
+
+\titleformat{\section}[block]
+  {\bfseries\Large}
+  {\thesection.}
+  {0.5em}
+  {} % título sin adornos
+  [\vspace{0.3ex}\titlerule]
+
+\titleformat{\subsection}[block]
+  {\bfseries\large}
+  {\thesubsection.}
+  {0.5em}
+  {}
+
+\begin{document}
+
+    \frontmatter
+    
+    \begin{titlepage}
+        \begin{center}
+            
+            \begin{center}
+                \includegraphics[width=2cm]{../resources/UNSL.png}\hspace{1cm}%
+                \includegraphics[width=2cm]{../resources/Dpto Informática.png}
+            \end{center}
+            \vspace{1cm}
+            {\LARGE Universidad Nacional de San Luis\\[0.5cm]
+            Departamento de Informática\\[1.2cm]
+            }
+            \linespread{1.2}\huge{
+
+                %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                % Project Title
+                %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                \textbf{\textit{Proyecto Final Integrador\\Sistemas Distribuidos y Paralelos}}
+                \bigbreak%
+
+                \textit{Procesamiento de Imágenes}
+                
+            }
+            \linespread{1}~\\[1.2cm]
+            
+            {\Large
+               
+                %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                % Authors
+                %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                
+                \bigbreak%
+                Facundo Nicolás Farias Lozano\\
+                Franco Sarubbi
+            }
+            
+            \linespread{1}~\\[1.2cm]
+
+            {\large
+                \emph{Profesores:}\\
+                    Dra. María Fabiana Piccoli\\
+                    Lic. Cesar Ochoa\\[0.5cm]
+                    
+                \emph{Ingeniería en Computación --- Ingeniería en Informática}\\
+
+                
+                \emph{2026}
+            }
+            
+
+            \date{2026}
+        \end{center}
+    \end{titlepage}
+    \pagestyle{plain}
+
+    
+    % -------------------------------------------------------------------
+    % List of Abbreviations
+    % -------------------------------------------------------------------
+    % \input{../chapters/abreviaturas.tex}
+
+    % -------------------------------------------------------------------
+    % Contents
+    % -------------------------------------------------------------------
+    \tableofcontents
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %%  Main chapters and sections                                        %%  
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    \mainmatter%
+    
+    \input{../chapters/introduccion.tex}
+    \input{../chapters/diseño.tex}
+    \input{../chapters/benchmarking.tex}
+    \input{../chapters/resultados.tex}
+    \input{../chapters/conclusion.tex}
+
+    % -------------------------------------------------------------------
+    % Bibliography/References  -  Harvard Style was used in this report
+    % -------------------------------------------------------------------
+    \bibliographystyle{plain}
+    \bibliography{references}
+
+    
+\end{document}
