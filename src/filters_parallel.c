@@ -24,6 +24,7 @@ void apply_blur(unsigned char *img_in, unsigned char *img_out, int width, int he
     int offset = filter_size / 2;                 // Para 3x3 es 1, para 5x5 es 2
     int num_elements = filter_size * filter_size; // 9 o 25
 
+    // Inicializamos todo en negro (valor neutro para bordes auxiliares)
     #pragma omp parallel for schedule(static)
     for (int i = 0; i < width * height; i++) {
         img_out[i] = 0;
@@ -71,6 +72,7 @@ void apply_sobel(unsigned char *img_in, unsigned char *img_out, int width, int h
         { 1,  2,  1}
     };
 
+    // Inicializamos todo en negro (valor neutro para bordes auxiliares)
     #pragma omp parallel for schedule(static)
     for (int i = 0; i < width * height; i++) {
         img_out[i] = 0; 

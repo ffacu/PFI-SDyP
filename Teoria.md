@@ -161,6 +161,6 @@ En la implementación actual de *filters.c*, funciones como *apply_blur* y *appl
 
 **¿Es necesario para el clúster?**
 
-* **Para garantizar la precisión:** No. El programa te va a tirar resultados correctos igual, incluso sin esto.
+* **Para garantizar la precisión:** No. El programa va a tirar resultados correctos igual sin esto.
 * **Para mejorar el rendimiento y la escalabilidad:** Sí. Como se compila y se corre en un clúster (donde los nodos de cómputo tienen arquitecturas multisocket con un montón de núcleos), ignorar la mitigación NUMA va a hacer que las curvas de *speedup* y eficiencia de OpenMP/Híbrido no escalen como corresponde.
 

@@ -1,6 +1,13 @@
 \chapter{Introducción}
 
-El presente trabajo práctico integrador tiene como objetivo principal comprender y aplicar la problemática asociada al diseño e implementación de sistemas paralelos eficientes. Como caso de estudio empírico, se plantea el desarrollo de una aplicación de procesamiento de imágenes capaz de generar un efecto de \textit{Cartoon} a partir de una fotografía original. Para lograr este efecto visual sobre una matriz de píxeles, se debe construir un pipeline de transformaciones espaciales que incluye: la conversión de la imagen a escala de grises, la aplicación de filtros de convolución matemática para suavizado y detección de bordes, la reducción de la paleta de colores mediante posterización, y la posterior fusión de estos elementos.
+El presente trabajo práctico integrador tiene como objetivo principal comprender y aplicar la problemática asociada al diseño e implementación de sistemas paralelos eficientes. Como caso de estudio empírico, se plantea el desarrollo de una aplicación de procesamiento de imágenes capaz de generar un efecto de \textit{Cartoon} a partir de una fotografía original. Para lograr este efecto visual sobre una matriz de píxeles, se debe construir un pipeline de transformaciones espaciales que incluye:
+\begin{enumerate}
+    \item Conversión de la imagen a escala de grises.
+    \item Aplicación de filtros de convolución matemática para suavizado y detección de bordes.
+    \item Reducción de la paleta de colores mediante posterización.
+    \item Fusión de estos elementos.
+\end{enumerate}
+
 
 Con el fin de analizar cómo se adaptan estos algoritmos a diferentes arquitecturas de hardware, el proyecto propone resolver el problema mediante cuatro enfoques de programación distintos:
 

@@ -1,6 +1,6 @@
 \chapter{Resultados Visuales del Procesamiento}
 
-Más allá de las métricas de rendimiento analizadas en el capítulo anterior, el resultado escencial del proyecto son las imágenes resultantes del pipeline de procesamiento para verificar que las cuatro implementaciones producen una salida visualmente idéntica y para comprender el efecto concreto que cada configuración de filtrado ejerce sobre la imagen original. Las figuras que se presentan a continuación corresponden a la salida de la versión secuencial; las versiones paralelas (OpenMP, MPI e Híbrida) generan resultados pixel-a-pixel equivalentes, dado que el algoritmo de procesamiento es determinístico e independiente del paradigma de concurrencia utilizado.
+El resultado más imoprtante de este trabajo son las imágenes obtenidas del pipeline de procesamiento. Para verificar que las cuatro implementaciones producen una salida visualmente coherente, y para comprender el efecto concreto que cada configuración de filtrado ejerce sobre la imagen original. Dado que el algoritmo de procesamiento es determinístico e independiente del paradigma de concurrencia, las versiones paralelas (OpenMP, MPI e Híbrida) generan resultados equivalentes a la versión secuencial. De esta manera, a continuación se presentan las imágenes resultantes del procesamiento secuencial.
 
 Para cada una de las tres resoluciones evaluadas ($800 \times 800$, $2000 \times 2000$ y $5000 \times 5000$~píxeles), se contrastan los dos perfiles de filtrado:
 
@@ -32,7 +32,7 @@ Para cada una de las tres resoluciones evaluadas ($800 \times 800$, $2000 \times
     \label{fig:output_800}
 \end{figure}
 
-En la configuración de 3~niveles (Figura~\ref{fig:out_800_3_3}), las zonas de piel y fondo se reducen a parches planos de color con contornos marcados, produciendo un efecto visual similar al de una ilustración vectorial. La configuración de 9~niveles (Figura~\ref{fig:out_800_5_9}), en cambio, conserva los matices tonales del rostro y la textura del fondo, resultando en una imagen que se percibe como una versión estilizada pero fiel de la fotografía original.
+En la configuración de 3~niveles (Figura~\ref{fig:out_800_3_3}), las zonas de piel y fondo se reducen a parches planos de color con contornos marcados, produciendo un efecto cartoon. En cambio, la configuración de 9~niveles (Figura~\ref{fig:out_800_5_9}), conserva los matices tonales del rostro y la textura del fondo, resultando en una imagen estilizada pero fiel a la fotografía original.
 
 
 %--------------------------------------------------------------------
@@ -57,7 +57,7 @@ En la configuración de 3~niveles (Figura~\ref{fig:out_800_3_3}), las zonas de p
     \label{fig:output_2000}
 \end{figure}
 
-Al incrementar la resolución, el mayor nivel de detalle espacial acentúa la diferencia perceptual entre ambos perfiles. Con 3~niveles de posterizado (Figura~\ref{fig:out_2000_3_3}), las regiones de tonalidad similar colapsan en áreas extensas de color uniforme, eliminando prácticamente toda textura y generando un aspecto plano y sobresaturado. Con 9~niveles (Figura~\ref{fig:out_2000_5_9}), la mayor granularidad tonal permite que las variaciones sutiles de iluminación y sombra se preserven, manteniendo la profundidad visual y el volumen percibido de los elementos de la imagen.
+Al incrementar la resolución, el mayor nivel de detalle acentúa la diferencia entre ambos perfiles. Con 3~niveles de posterizado (Figura~\ref{fig:out_2000_3_3}), las regiones de tonalidad similar colapsan en áreas extensas de color uniforme, eliminando prácticamente toda textura y generando un aspecto plano y sobresaturado. Con 9~niveles (Figura~\ref{fig:out_2000_5_9}), la mayor granularidad tonal permite que las variaciones sutiles de iluminación y sombra se preserven.
 
 
 %--------------------------------------------------------------------
@@ -82,4 +82,4 @@ Al incrementar la resolución, el mayor nivel de detalle espacial acentúa la di
     \label{fig:output_5000}
 \end{figure}
 
-En la resolución máxima del benchmark, la tendencia se confirma de forma concluyente. La configuración liviana (Figura~\ref{fig:out_5000_3_3}) produce un resultado con una paleta de colores extremadamente reducida, donde los detalles finos se pierden por completo y las transiciones entre regiones de distinto color son bruscas y artificiales. La configuración pesada (Figura~\ref{fig:out_5000_5_9}) logra un equilibrio entre la estilización propia del posterizado y la preservación de la riqueza visual de la imagen original, demostrando que el aumento del número de niveles de cuantización es el factor determinante para obtener un resultado natural y visualmente agradable.
+En la resolución máxima del benchmark, la tendencia se confirma de forma concluyente. La configuración liviana (Figura~\ref{fig:out_5000_3_3}) produce un resultado con una paleta de colores extremadamente reducida, donde los detalles se pierden por completo y las transiciones entre regiones de distinto color son bruscas. La configuración pesada (Figura~\ref{fig:out_5000_5_9}) logra un equilibrio entre la estilización propia del posterizado y la preservación de la riqueza visual de la imagen original.
